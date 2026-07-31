@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Location = { id: string; name: string; code: string };
 type Brand = { id: string; name: string; location_id: string };
@@ -92,6 +92,12 @@ export default function CeoDashboardPage() {
   const [period, setPeriod] = useState<PeriodKey>("week");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reportFile, setReportFile] = useState<File | null>(null);
+  const [reportStart, setReportStart] = useState("");
+  const [reportEnd, setReportEnd] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void loadDashboard();
@@ -129,6 +135,69 @@ export default function CeoDashboardPage() {
       setError(e instanceof Error ? e.message : "Unable to load CEO dashboard.");
     } finally {
       if (!silent) setLoading(false);
+    }
+  }
+
+  async function uploadPdfReport() {
+    setUploadMessage("");
+    if (!reportFile) return setUploadMessage("Select a Zomato PDF report first.");
+    if (reportFile.type !== "application/pdf") return setUploadMessage("Only PDF files are allowed.");
+    if (reportFile.size > 20 * 1024 * 1024) return setUploadMessage("PDF size must be below 20 MB.");
+    if (locationId === "all") return setUploadMessage("Select the report location before uploading.");
+    if (!brandId) return setUploadMessage("Select the report brand before uploading.");
+    if (!reportStart || !reportEnd) return setUploadMessage("Select the report start and end dates.");
+    if (reportEnd < reportStart) return setUploadMessage("Report end date cannot be before start date.");
+
+    setUploading(true);
+    try {
+      const { url, key } = config();
+      const safeName = reportFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `${locationId}/${brandId}/${reportStart}_${reportEnd}/${Date.now()}_${safeName}`;
+      const uploadRes = await fetch(`${url}/storage/v1/object/zomato-weekly-reports/${storagePath}`, {
+        method: "POST",
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/pdf",
+          "x-upsert": "false",
+        },
+        body: reportFile,
+      });
+      if (!uploadRes.ok) throw new Error(await uploadRes.text());
+
+      const metaRes = await fetch(`${url}/rest/v1/report_uploads`, {
+        method: "POST",
+        headers: {
+          ...headers(key),
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          location_id: locationId,
+          brand_id: brandId,
+          platform: "zomato",
+          report_type: "weekly_pdf",
+          report_period_start: reportStart,
+          report_period_end: reportEnd,
+          file_name: reportFile.name,
+          storage_bucket: "zomato-weekly-reports",
+          storage_path: storagePath,
+          file_size_bytes: reportFile.size,
+          mime_type: reportFile.type,
+          processing_status: "uploaded",
+        }),
+      });
+      if (!metaRes.ok) throw new Error(await metaRes.text());
+
+      setUploadMessage(`Uploaded successfully: ${reportFile.name}`);
+      setReportFile(null);
+      setReportStart("");
+      setReportEnd("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      setUploadMessage(e instanceof Error ? e.message : "Unable to upload the PDF report.");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -212,6 +281,34 @@ export default function CeoDashboardPage() {
             <option value="last_month">Last Full Month</option>
           </select>
           <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{selectedSummary.orders}</b> Zomato orders in selected period</div>
+        </section>
+
+        <section className="grid gap-5 xl:grid-cols-[1fr_1.5fr]">
+          <Panel title="Attach Zomato Weekly PDF">
+            <div className="space-y-4">
+              <label className="block text-sm font-bold text-slate-700">
+                PDF report
+                <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" onChange={(e) => setReportFile(e.target.files?.[0] || null)} className="mt-2 block w-full rounded-xl border bg-white p-3 text-sm" />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-bold text-slate-700">Period start<input type="date" value={reportStart} onChange={(e) => setReportStart(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-3" /></label>
+                <label className="block text-sm font-bold text-slate-700">Period end<input type="date" value={reportEnd} onChange={(e) => setReportEnd(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-3" /></label>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{reportFile ? `${reportFile.name} · ${(reportFile.size / 1024 / 1024).toFixed(2)} MB` : "Select the location and brand above, then attach the weekly Zomato PDF."}</div>
+              <button type="button" onClick={() => void uploadPdfReport()} disabled={uploading} className="h-12 w-full rounded-xl bg-slate-950 px-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-50">{uploading ? "Uploading PDF..." : "Upload PDF Report"}</button>
+              {uploadMessage ? <p className={`rounded-xl p-3 text-sm font-bold ${uploadMessage.startsWith("Uploaded successfully") ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{uploadMessage}</p> : null}
+            </div>
+          </Panel>
+
+          <Panel title="How the report will be used">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Metric label="Weekly analysis" value="Sales, payout, AOV and ratio" />
+              <Metric label="14-day cumulative" value="Two-week trend and comparison" />
+              <Metric label="Monthly benchmark" value="Last full month performance" />
+              <Metric label="Menu intelligence" value="Top items, revenue share and ranking" />
+            </div>
+            <p className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">The PDF is stored securely and marked as uploaded. Automatic extraction from the PDF will be connected in the report-processing step.</p>
+          </Panel>
         </section>
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
