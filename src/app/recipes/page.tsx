@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Location = { id: string; name: string };
 type Brand = { id: string; name: string; location_id: string };
-type MenuItem = { id: string; name: string; selling_price: number; brand_id: string; location_id: string };
+type MenuItem = { id: string; name: string; base_price: number; brand_id: string; location_id: string };
 type InventoryItem = { id: string; name: string; unit: string; average_cost: number; location_id: string };
 type IngredientLine = { inventory_item_id: string; quantity: number; wastage_percent: number };
 
@@ -65,10 +65,11 @@ export default function RecipesPage() {
 
   async function loadLocationData(id: string) {
     try {
+      setError("");
       const { url, key } = config();
       const [brandRes, menuRes, inventoryRes, recipeRes] = await Promise.all([
         fetch(`${url}/rest/v1/brands?location_id=eq.${id}&select=id,name,location_id&order=name.asc`, { headers: headers(key), cache: "no-store" }),
-        fetch(`${url}/rest/v1/menu_items?location_id=eq.${id}&select=id,name,selling_price,brand_id,location_id&order=name.asc`, { headers: headers(key), cache: "no-store" }),
+        fetch(`${url}/rest/v1/menu_items?location_id=eq.${id}&select=id,name,base_price,brand_id,location_id&order=name.asc`, { headers: headers(key), cache: "no-store" }),
         fetch(`${url}/rest/v1/inventory_items?location_id=eq.${id}&select=id,name,unit,average_cost,location_id&is_active=eq.true&order=name.asc`, { headers: headers(key), cache: "no-store" }),
         fetch(`${url}/rest/v1/recipes?location_id=eq.${id}&select=*&order=created_at.desc`, { headers: headers(key), cache: "no-store" }),
       ]);
@@ -90,7 +91,7 @@ export default function RecipesPage() {
     if (!item) return total;
     return total + Number(line.quantity || 0) * Number(item.average_cost || 0) * (1 + Number(line.wastage_percent || 0) / 100);
   }, 0) / Math.max(yieldQuantity || 1, 1);
-  const foodCostPercent = selectedMenu?.selling_price ? (recipeCost / Number(selectedMenu.selling_price)) * 100 : 0;
+  const foodCostPercent = selectedMenu?.base_price ? (recipeCost / Number(selectedMenu.base_price)) * 100 : 0;
 
   function updateLine(index: number, field: keyof IngredientLine, value: string | number) {
     setLines((current) => current.map((line, i) => i === index ? { ...line, [field]: value } : line));
@@ -140,7 +141,7 @@ export default function RecipesPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <Select label="Location" value={locationId} onChange={setLocationId} options={locations.map((x) => [x.id, x.name])} />
               <Select label="Brand" value={brandId} onChange={setBrandId} options={brands.map((x) => [x.id, x.name])} />
-              <Select label="Menu item" value={menuItemId} onChange={setMenuItemId} options={filteredMenu.map((x) => [x.id, `${x.name} - ₹${Number(x.selling_price).toFixed(0)}`])} />
+              <Select label="Menu item" value={menuItemId} onChange={setMenuItemId} options={filteredMenu.map((x) => [x.id, `${x.name} - ₹${Number(x.base_price).toFixed(0)}`])} />
               <label className="block"><span className="mb-2 block text-sm font-bold">Recipe yield</span><input type="number" min="0.001" step="0.001" value={yieldQuantity} onChange={(e) => setYieldQuantity(Number(e.target.value))} className="h-12 w-full rounded-xl border border-slate-200 px-4" /></label>
             </div>
 
