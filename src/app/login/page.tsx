@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const demoAccounts = [
   { role: "Super Admin", email: "admin@takshvi.in" },
@@ -12,12 +12,14 @@ const demoAccounts = [
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("admin@takshvi.in");
   const [password, setPassword] = useState("Takshvi@123");
+  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
 
@@ -27,11 +29,32 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-    window.localStorage.setItem(
-      "takshvi-demo-session",
-      JSON.stringify({ email, role: email.startsWith("admin") ? "super_admin" : "staff" }),
-    );
-    window.setTimeout(() => router.push("/"), 500);
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, remember }),
+      });
+
+      const result = (await response.json()) as {
+        success: boolean;
+        message?: string;
+      };
+
+      if (!response.ok || !result.success) {
+        setError(result.message || "Unable to sign in.");
+        return;
+      }
+
+      const nextPath = searchParams.get("next");
+      router.replace(nextPath && nextPath.startsWith("/") ? nextPath : "/");
+      router.refresh();
+    } catch {
+      setError("Unable to connect to the server. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -50,7 +73,7 @@ export default function LoginPage() {
           </div>
 
           <div className="relative grid gap-3 sm:grid-cols-2">
-            {["Role-based access", "Multi-location control", "Central inventory", "Audit-ready operations"].map((item) => (
+            {["Signed server sessions", "Role-based access", "Multi-location control", "Audit-ready operations"].map((item) => (
               <div key={item} className="rounded-2xl border border-slate-950/10 bg-white/40 p-4 font-bold backdrop-blur">
                 ✓ {item}
               </div>
@@ -94,7 +117,13 @@ export default function LoginPage() {
 
               <div className="flex items-center justify-between gap-3 text-sm">
                 <label className="flex items-center gap-2 font-semibold text-slate-600">
-                  <input type="checkbox" defaultChecked className="h-4 w-4 accent-emerald-500" /> Remember me
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(event) => setRemember(event.target.checked)}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  Remember me
                 </label>
                 <button type="button" className="font-bold text-emerald-600">Forgot password?</button>
               </div>
@@ -110,12 +139,15 @@ export default function LoginPage() {
             </form>
 
             <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wider text-slate-400">Demo role accounts</p>
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400">Development role accounts</p>
               <div className="mt-3 space-y-2">
                 {demoAccounts.map((account) => (
                   <button
                     key={account.email}
-                    onClick={() => setEmail(account.email)}
+                    onClick={() => {
+                      setEmail(account.email);
+                      setPassword("Takshvi@123");
+                    }}
                     className="flex w-full items-center justify-between rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm transition hover:ring-2 hover:ring-emerald-300"
                   >
                     <span className="font-bold">{account.role}</span>
@@ -123,7 +155,7 @@ export default function LoginPage() {
                   </button>
                 ))}
               </div>
-              <p className="mt-3 text-xs text-slate-400">Development login only. Production authentication will use encrypted server sessions.</p>
+              <p className="mt-3 text-xs text-slate-400">All development accounts use password: Takshvi@123</p>
             </div>
           </div>
         </section>
