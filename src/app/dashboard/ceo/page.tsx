@@ -17,6 +17,7 @@ type Order = {
 };
 type OrderItem = { order_id: string; item_name: string; quantity: number; line_total: number };
 type PeriodKey = "week" | "two_weeks" | "last_month";
+type ReportType = "weekly" | "two_week" | "monthly";
 
 type Summary = {
   label: string;
@@ -92,9 +93,13 @@ export default function CeoDashboardPage() {
   const [period, setPeriod] = useState<PeriodKey>("week");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [restaurantName, setRestaurantName] = useState("");
+  const [reportType, setReportType] = useState<ReportType>("weekly");
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [reportStart, setReportStart] = useState("");
   const [reportEnd, setReportEnd] = useState("");
+  const [reportNotes, setReportNotes] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +109,14 @@ export default function CeoDashboardPage() {
     const timer = window.setInterval(() => void loadDashboard(true), 8000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const selectedBrand = brands.find((brand) => brand.id === brandId);
+    const selectedLocation = locations.find((location) => location.id === locationId);
+    if (selectedBrand) {
+      setRestaurantName(selectedLocation ? `${selectedBrand.name} - ${selectedLocation.name}` : selectedBrand.name);
+    }
+  }, [brandId, locationId, brands, locations]);
 
   async function loadDashboard(silent = false) {
     if (!silent) setLoading(true);
@@ -140,6 +153,7 @@ export default function CeoDashboardPage() {
 
   async function uploadPdfReport() {
     setUploadMessage("");
+    if (!restaurantName.trim()) return setUploadMessage("Enter the restaurant or outlet name.");
     if (!reportFile) return setUploadMessage("Select a Zomato PDF report first.");
     if (reportFile.type !== "application/pdf") return setUploadMessage("Only PDF files are allowed.");
     if (reportFile.size > 20 * 1024 * 1024) return setUploadMessage("PDF size must be below 20 MB.");
@@ -175,24 +189,28 @@ export default function CeoDashboardPage() {
         body: JSON.stringify({
           location_id: locationId,
           brand_id: brandId,
+          restaurant_name: restaurantName.trim(),
           platform: "zomato",
-          report_type: "weekly_pdf",
+          report_type: reportType,
           report_period_start: reportStart,
           report_period_end: reportEnd,
+          report_notes: reportNotes.trim() || null,
           file_name: reportFile.name,
           storage_bucket: "zomato-weekly-reports",
           storage_path: storagePath,
           file_size_bytes: reportFile.size,
           mime_type: reportFile.type,
-          processing_status: "uploaded",
+          processing_status: "analysis_requested",
+          analysis_requested_at: new Date().toISOString(),
         }),
       });
       if (!metaRes.ok) throw new Error(await metaRes.text());
 
-      setUploadMessage(`Uploaded successfully: ${reportFile.name}`);
+      setUploadMessage(`PDF uploaded and queued for analysis: ${reportFile.name}`);
       setReportFile(null);
       setReportStart("");
       setReportEnd("");
+      setReportNotes("");
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (e) {
       setUploadMessage(e instanceof Error ? e.message : "Unable to upload the PDF report.");
@@ -257,7 +275,7 @@ export default function CeoDashboardPage() {
             <div>
               <p className="text-sm font-black uppercase tracking-[.2em] text-emerald-400">Takshvi Restaurant OS AI</p>
               <h1 className="mt-2 text-3xl font-black">Zomato Performance Intelligence</h1>
-              <p className="mt-2 text-sm text-slate-300">Weekly, 14-day cumulative and last-month payout analysis with top-selling item intelligence.</p>
+              <p className="mt-2 text-sm text-slate-300">Upload a Zomato PDF, queue it for analysis, and compare weekly, 14-day and monthly performance.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href="/reports/daily" className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950">Reports</Link>
@@ -283,31 +301,48 @@ export default function CeoDashboardPage() {
           <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{selectedSummary.orders}</b> Zomato orders in selected period</div>
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-[1fr_1.5fr]">
-          <Panel title="Attach Zomato Weekly PDF">
+        <section className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
+          <Panel title="Upload Zomato PDF & Generate Detailed Report">
             <div className="space-y-4">
-              <label className="block text-sm font-bold text-slate-700">
-                PDF report
+              <label className="block text-sm font-bold text-slate-700">Restaurant / Outlet Name
+                <input value={restaurantName} onChange={(e) => setRestaurantName(e.target.value)} placeholder="Example: Honeyman - Sapphire 49" className="mt-2 h-12 w-full rounded-xl border px-3" />
+              </label>
+              <label className="block text-sm font-bold text-slate-700">Report Type
+                <select value={reportType} onChange={(e) => setReportType(e.target.value as ReportType)} className="mt-2 h-12 w-full rounded-xl border px-3">
+                  <option value="weekly">Weekly</option>
+                  <option value="two_week">2 Week Cumulative</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </label>
+              <label className="block text-sm font-bold text-slate-700">PDF Report
                 <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" onChange={(e) => setReportFile(e.target.files?.[0] || null)} className="mt-2 block w-full rounded-xl border bg-white p-3 text-sm" />
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm font-bold text-slate-700">Period start<input type="date" value={reportStart} onChange={(e) => setReportStart(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-3" /></label>
-                <label className="block text-sm font-bold text-slate-700">Period end<input type="date" value={reportEnd} onChange={(e) => setReportEnd(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-3" /></label>
+                <label className="block text-sm font-bold text-slate-700">Period Start<input type="date" value={reportStart} onChange={(e) => setReportStart(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-3" /></label>
+                <label className="block text-sm font-bold text-slate-700">Period End<input type="date" value={reportEnd} onChange={(e) => setReportEnd(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-3" /></label>
               </div>
-              <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{reportFile ? `${reportFile.name} · ${(reportFile.size / 1024 / 1024).toFixed(2)} MB` : "Select the location and brand above, then attach the weekly Zomato PDF."}</div>
-              <button type="button" onClick={() => void uploadPdfReport()} disabled={uploading} className="h-12 w-full rounded-xl bg-slate-950 px-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-50">{uploading ? "Uploading PDF..." : "Upload PDF Report"}</button>
-              {uploadMessage ? <p className={`rounded-xl p-3 text-sm font-bold ${uploadMessage.startsWith("Uploaded successfully") ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{uploadMessage}</p> : null}
+              <label className="block text-sm font-bold text-slate-700">Report Notes (Optional)
+                <textarea value={reportNotes} onChange={(e) => setReportNotes(e.target.value)} placeholder="Festival week, campaign, menu launch, unusual closure, etc." rows={3} className="mt-2 w-full rounded-xl border px-3 py-3" />
+              </label>
+              <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">{reportFile ? `${reportFile.name} · ${(reportFile.size / 1024 / 1024).toFixed(2)} MB` : "Select a location and brand above, then attach the Zomato PDF."}</div>
+              <button type="button" onClick={() => void uploadPdfReport()} disabled={uploading} className="h-12 w-full rounded-xl bg-slate-950 px-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-50">{uploading ? "Uploading & Queuing Analysis..." : "Upload PDF & Generate Detailed Report"}</button>
+              {uploadMessage ? <p className={`rounded-xl p-3 text-sm font-bold ${uploadMessage.includes("queued for analysis") ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{uploadMessage}</p> : null}
             </div>
           </Panel>
 
-          <Panel title="How the report will be used">
+          <Panel title="Detailed Report Output">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Metric label="Weekly analysis" value="Sales, payout, AOV and ratio" />
-              <Metric label="14-day cumulative" value="Two-week trend and comparison" />
-              <Metric label="Monthly benchmark" value="Last full month performance" />
-              <Metric label="Menu intelligence" value="Top items, revenue share and ranking" />
+              <Metric label="Executive Summary" value="Sales, orders, AOV and payout" />
+              <Metric label="Payout Analysis" value="Commission and realization ratio" />
+              <Metric label="Item Intelligence" value="Top, low and high-revenue items" />
+              <Metric label="Trend Analysis" value="7-day, 14-day and monthly" />
+              <Metric label="Loss Analysis" value="Discounts, cancellation and deductions" />
+              <Metric label="AI Action Plan" value="Price, combo and promotion suggestions" />
             </div>
-            <p className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">The PDF is stored securely and marked as uploaded. Automatic extraction from the PDF will be connected in the report-processing step.</p>
+            <div className="mt-4 rounded-2xl bg-slate-950 p-4 text-sm leading-6 text-white">
+              Status flow: Uploaded → Analysis Requested → Extracted Data Review → Dashboard Published.
+            </div>
+            <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">The dashboard now queues the PDF for analysis and stores all report details. The extraction worker still needs to be connected before the PDF can automatically populate the charts.</p>
           </Panel>
         </section>
 
@@ -359,10 +394,10 @@ export default function CeoDashboardPage() {
 
           <Panel title="Top Item Analysis">
             <div className="space-y-3">
-              <Metric label="Highest quantity" value={topItem ? `${topItem.name} (${topItem.qty})` : "—"} />
-              <Metric label="Highest revenue" value={highestRevenueItem ? `${highestRevenueItem.name} · ${money(highestRevenueItem.revenue)}` : "—"} />
-              <Metric label="Average selling price" value={topItem ? money(topItem.avgPrice) : "—"} />
-              <Metric label="Orders containing top item" value={String(topItem?.orderCount || 0)} />
+              <Metric label="Highest Quantity" value={topItem ? `${topItem.name} (${topItem.qty})` : "—"} />
+              <Metric label="Highest Revenue" value={highestRevenueItem ? `${highestRevenueItem.name} · ${money(highestRevenueItem.revenue)}` : "—"} />
+              <Metric label="Average Selling Price" value={topItem ? money(topItem.avgPrice) : "—"} />
+              <Metric label="Orders Containing Top Item" value={String(topItem?.orderCount || 0)} />
             </div>
             <div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
               {topItem ? `${topItem.name} contributes ${topItem.revenueShare.toFixed(1)}% of selected-period Zomato sales. Use it as the hero item for combos, sponsored ads and addon upselling.` : "Import the weekly Zomato item report to generate item-level recommendations."}
