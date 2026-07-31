@@ -79,7 +79,7 @@ export default function OrdersPage() {
   useEffect(() => { void loadOrders(); }, [locationId]);
   useEffect(() => {
     if (!autoRefresh) return;
-    const timer = window.setInterval(() => void loadOrders(true), 15000);
+    const timer = window.setInterval(() => void loadOrders(true), 8000);
     return () => window.clearInterval(timer);
   }, [autoRefresh, locationId]);
 
@@ -154,7 +154,7 @@ export default function OrdersPage() {
   const aov = nonCancelled.length ? sales / nonCancelled.length : 0;
 
   return <main className="min-h-screen bg-slate-100 p-4 text-slate-950 md:p-7"><div className="mx-auto max-w-[1700px] space-y-5">
-    <header className="rounded-3xl bg-slate-950 p-7 text-white"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-sm font-black uppercase tracking-[.2em] text-emerald-400">Takshvi Restaurant OS AI</p><h1 className="mt-2 text-3xl font-black">Unified Order Command Center</h1><p className="mt-2 text-sm text-slate-300">All brands, all kitchens and every order source in one live workflow.</p></div><div className="flex gap-3"><button onClick={() => void loadOrders()} className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">Refresh now</button><label className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-3 text-sm font-bold"><input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} /> Auto refresh</label></div></div></header>
+    <header className="rounded-3xl bg-slate-950 p-7 text-white"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-sm font-black uppercase tracking-[.2em] text-emerald-400">Takshvi Restaurant OS AI</p><h1 className="mt-2 text-3xl font-black">Unified Order Command Center</h1><p className="mt-2 text-sm text-slate-300">All brands, all kitchens and every order source in one live workflow.</p></div><div className="flex gap-3"><button onClick={() => void loadOrders()} className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">Refresh now</button><label className="flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-3 text-sm font-bold"><input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} /> Auto refresh every 8 sec</label></div></div></header>
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6"><Stat label="Visible orders" value={String(filteredOrders.length)} /><Stat label="Active" value={String(active)} /><Stat label="Late >30 min" value={String(late)} danger={late > 0} /><Stat label="Sales value" value={`₹${sales.toFixed(0)}`} /><Stat label="AOV" value={`₹${aov.toFixed(0)}`} /><Stat label="Cancelled" value={String(filteredOrders.filter((o) => o.status === "cancelled").length)} /></section>
 
