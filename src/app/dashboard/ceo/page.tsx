@@ -21,6 +21,8 @@ type Order = {
 type OrderItem = { order_id: string; item_name: string; quantity: number; line_total: number };
 type Inventory = { id: string; location_id: string; name: string; current_stock: number; reorder_level: number; average_cost: number };
 
+type ChartPoint = { label: string; value: number };
+
 function config() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -43,6 +45,10 @@ function todayRange() {
 
 function money(value: number) {
   return `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
+
+function label(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export default function CeoDashboardPage() {
@@ -71,26 +77,26 @@ export default function CeoDashboardPage() {
       const [locationRes, brandRes, orderRes, inventoryRes] = await Promise.all([
         fetch(`${url}/rest/v1/locations?select=id,name,code&is_active=eq.true&order=name.asc`, { headers: headers(key), cache: "no-store" }),
         fetch(`${url}/rest/v1/brands?select=id,name,location_id&is_active=eq.true&order=name.asc`, { headers: headers(key), cache: "no-store" }),
-        fetch(`${url}/rest/v1/orders?select=id,order_number,location_id,brand_id,source,status,grand_total,tax_amount,discount_amount,platform_payout_amount,created_at&created_at=gte.${encodeURIComponent(start)}&created_at=lte.${encodeURIComponent(end)}&order=created_at.desc`, { headers: headers(key), cache: "no-store" }),
+        fetch(`${url}/rest/v1/orders?select=id,order_number,location_id,brand_id,source,status,grand_total,tax_amount,discount_amount,platform_payout_amount,created_at&created_at=gte.${encodeURIComponent(start)}&created_at=lte.${encodeURIComponent(end)}&order=created_at.asc`, { headers: headers(key), cache: "no-store" }),
         fetch(`${url}/rest/v1/inventory_items?select=id,location_id,name,current_stock,reorder_level,average_cost&is_active=eq.true`, { headers: headers(key), cache: "no-store" }),
       ]);
       if (!locationRes.ok) throw new Error(await locationRes.text());
       if (!brandRes.ok) throw new Error(await brandRes.text());
       if (!orderRes.ok) throw new Error(await orderRes.text());
       if (!inventoryRes.ok) throw new Error(await inventoryRes.text());
+
       const orderRows = (await orderRes.json()) as Order[];
       setLocations(await locationRes.json());
       setBrands(await brandRes.json());
       setOrders(orderRows);
       setInventory(await inventoryRes.json());
+
       const ids = orderRows.map((order) => order.id);
       if (ids.length) {
         const itemRes = await fetch(`${url}/rest/v1/order_items?order_id=in.(${ids.join(",")})&select=order_id,item_name,quantity,line_total`, { headers: headers(key), cache: "no-store" });
         if (!itemRes.ok) throw new Error(await itemRes.text());
         setItems(await itemRes.json());
-      } else {
-        setItems([]);
-      }
+      } else setItems([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load CEO dashboard.");
     } finally {
@@ -123,7 +129,7 @@ export default function CeoDashboardPage() {
     acc[item.item_name].qty += Number(item.quantity || 0);
     acc[item.item_name].revenue += Number(item.line_total || 0);
     return acc;
-  }, {})).sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
+  }, {})).sort((a, b) => b[1].qty - a[1].qty).slice(0, 7);
 
   const filteredInventory = inventory.filter((row) => locationId === "all" || row.location_id === locationId);
   const inventoryValue = filteredInventory.reduce((sum, row) => sum + Number(row.current_stock || 0) * Number(row.average_cost || 0), 0);
@@ -136,6 +142,26 @@ export default function CeoDashboardPage() {
     return { platform, orders: rows.length, sales: value, payout: paid, aov: rows.length ? value / rows.length : 0 };
   });
 
+  const hourlySales: ChartPoint[] = Array.from({ length: 24 }, (_, hour) => ({
+    label: `${hour.toString().padStart(2, "0")}:00`,
+    value: validOrders.filter((order) => new Date(order.created_at).getHours() === hour).reduce((sum, order) => sum + Number(order.grand_total || 0), 0),
+  }));
+
+  const sourceRows = Object.entries(validOrders.reduce<Record<string, number>>((acc, order) => {
+    acc[order.source] = (acc[order.source] || 0) + Number(order.grand_total || 0);
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1]);
+
+  const statusRows = Object.entries(filteredOrders.reduce<Record<string, number>>((acc, order) => {
+    acc[order.status] = (acc[order.status] || 0) + 1;
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1]);
+
+  const locationRows = locations.map((location) => {
+    const rows = validOrders.filter((order) => order.location_id === location.id);
+    return { label: location.name, value: rows.reduce((sum, order) => sum + Number(order.grand_total || 0), 0) };
+  }).filter((row) => row.value > 0).sort((a, b) => b.value - a.value).slice(0, 6);
+
   return (
     <main className="min-h-screen bg-slate-100 p-4 text-slate-950 md:p-7">
       <div className="mx-auto max-w-[1700px] space-y-5">
@@ -143,8 +169,8 @@ export default function CeoDashboardPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[.2em] text-emerald-400">Takshvi Restaurant OS AI</p>
-              <h1 className="mt-2 text-3xl font-black">CEO Command Dashboard</h1>
-              <p className="mt-2 text-sm text-slate-300">Connected to live orders, inventory and finance data. Auto-refresh every 8 seconds.</p>
+              <h1 className="mt-2 text-3xl font-black">CEO Visual Command Dashboard</h1>
+              <p className="mt-2 text-sm text-slate-300">Graphical view of sales, orders, marketplaces, inventory and menu performance. Auto-refresh every 8 seconds.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link href="/orders" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">Live Orders</Link>
@@ -163,8 +189,8 @@ export default function CeoDashboardPage() {
             <option value="">All brands</option>
             {visibleBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
           </select>
-          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{locations.length}</b> active locations</div>
-          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{visibleBrands.length}</b> active brands</div>
+          <FilterStat label="Active locations" value={locations.length} />
+          <FilterStat label="Active brands" value={visibleBrands.length} />
         </section>
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-8">
@@ -178,22 +204,31 @@ export default function CeoDashboardPage() {
           <Kpi title="Low Stock" value={String(lowStock)} danger={lowStock > 0} />
         </section>
 
+        <section className="grid gap-5 xl:grid-cols-2">
+          <Panel title="Hourly Sales Trend">
+            <LineChart points={hourlySales} />
+          </Panel>
+          <Panel title="Sales by Order Source">
+            <DonutChart rows={sourceRows} total={sales} />
+          </Panel>
+        </section>
+
         <section className="grid gap-5 xl:grid-cols-3">
-          <Panel title="Marketplace Performance">
-            <div className="space-y-3">
-              {platformRows.map((row) => <div key={row.platform} className="rounded-2xl border p-4">
-                <div className="flex items-center justify-between"><b className="capitalize">{row.platform}</b><span>{row.orders} orders</span></div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-sm"><Metric label="Sales" value={money(row.sales)} /><Metric label="Payout" value={money(row.payout)} /><Metric label="AOV" value={money(row.aov)} /></div>
-              </div>)}
-            </div>
+          <Panel title="Sales vs Platform Payout">
+            <GroupedBars rows={platformRows.map((row) => ({ label: label(row.platform), first: row.sales, second: row.payout }))} firstLabel="Sales" secondLabel="Payout" />
           </Panel>
-
           <Panel title="Top Selling Items">
-            <div className="space-y-3">
-              {topItems.length ? topItems.map(([name, value], index) => <div key={name} className="flex items-center justify-between rounded-xl border p-3"><div><span className="mr-3 font-black text-slate-400">#{index + 1}</span><b>{name}</b></div><div className="text-right"><p className="font-black">{value.qty} qty</p><p className="text-xs text-slate-500">{money(value.revenue)}</p></div></div>) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No item sales recorded today.</p>}
-            </div>
+            <HorizontalBars rows={topItems.map(([name, value]) => ({ label: name, value: value.qty, note: money(value.revenue) }))} />
           </Panel>
+          <Panel title="Order Status Mix">
+            <HorizontalBars rows={statusRows.map(([name, value]) => ({ label: label(name), value }))} />
+          </Panel>
+        </section>
 
+        <section className="grid gap-5 xl:grid-cols-3">
+          <Panel title="Location Performance">
+            <HorizontalBars rows={locationRows.map((row) => ({ label: row.label, value: row.value, note: money(row.value) }))} moneyScale />
+          </Panel>
           <Panel title="Business Health">
             <div className="grid grid-cols-2 gap-3">
               <Metric label="GST" value={money(tax)} />
@@ -201,29 +236,18 @@ export default function CeoDashboardPage() {
               <Metric label="Cancelled" value={String(cancelled)} />
               <Metric label="Inventory Value" value={money(inventoryValue)} />
             </div>
-            <div className="mt-4 rounded-2xl bg-slate-950 p-4 text-white">
-              <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">AI Attention</p>
-              <p className="mt-2 text-sm leading-6">{lowStock > 0 ? `${lowStock} inventory items need replenishment.` : activeOrders > 5 ? `${activeOrders} orders are currently active; monitor kitchen load.` : cancelled > 0 ? `${cancelled} cancellation(s) recorded today; review reasons.` : "Operations look stable based on current data."}</p>
-            </div>
+            <Gauge value={payoutRatio} label="Online payout realization" />
           </Panel>
-        </section>
-
-        <section className="grid gap-5 lg:grid-cols-2">
-          <Panel title="Quick Actions">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Quick href="/orders" title="Unified Orders" note="Manage all order sources" />
-              <Quick href="/pos" title="POS Billing" note="Create bills and print KOT" />
-              <Quick href="/inventory" title="Inventory" note="Review central stock" />
-              <Quick href="/integrations/marketplaces" title="Marketplace Setup" note="Map Zomato and Swiggy" />
+          <Panel title="AI Attention">
+            <div className="rounded-2xl bg-slate-950 p-5 text-white">
+              <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">Priority insight</p>
+              <p className="mt-3 text-sm leading-6">{lowStock > 0 ? `${lowStock} inventory items need replenishment.` : activeOrders > 5 ? `${activeOrders} orders are active; monitor kitchen load.` : cancelled > 0 ? `${cancelled} cancellation(s) recorded today; review reasons.` : payoutRatio > 0 && payoutRatio < 65 ? `Online payout realization is only ${payoutRatio.toFixed(1)}%; review commissions and deductions.` : topItems[0] ? `${topItems[0][0]} is today's highest-selling item with ${topItems[0][1].qty} units.` : "Operations look stable based on current data."}</p>
             </div>
-          </Panel>
-          <Panel title="Data Connection Status">
-            <div className="space-y-3 text-sm">
-              <Status label="Supabase database" value="Connected" ok />
-              <Status label="POS orders" value="Connected" ok />
-              <Status label="Inventory engine" value="Connected" ok />
-              <Status label="Petpooja weekly reports" value="Ready for upload module" />
-              <Status label="Petpooja live API" value="Waiting for official access" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Quick href="/orders" title="Unified Orders" note="Live order control" />
+              <Quick href="/inventory" title="Inventory" note="Stock and reorder" />
+              <Quick href="/reports/daily" title="Reports" note="Sales and GST" />
+              <Quick href="/integrations/marketplaces" title="Marketplace" note="Zomato and Swiggy" />
             </div>
           </Panel>
         </section>
@@ -238,15 +262,57 @@ export default function CeoDashboardPage() {
 function Kpi({ title, value, danger = false }: { title: string; value: string; danger?: boolean }) {
   return <div className={`rounded-2xl p-5 shadow-sm ${danger ? "bg-red-50" : "bg-white"}`}><p className="text-sm font-bold text-slate-500">{title}</p><p className={`mt-2 text-2xl font-black ${danger ? "text-red-600" : ""}`}>{value}</p></div>;
 }
+
+function FilterStat({ label: title, value }: { label: string; value: number }) {
+  return <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{value}</b> {title}</div>;
+}
+
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return <section className="rounded-3xl bg-white p-5 shadow-sm"><h2 className="mb-4 text-xl font-black">{title}</h2>{children}</section>;
 }
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 font-black">{value}</p></div>;
+
+function Metric({ label: title, value }: { label: string; value: string }) {
+  return <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-bold text-slate-500">{title}</p><p className="mt-1 text-lg font-black">{value}</p></div>;
 }
+
 function Quick({ href, title, note }: { href: string; title: string; note: string }) {
-  return <Link href={href} className="rounded-2xl border p-4 hover:border-emerald-500"><p className="font-black">{title}</p><p className="mt-1 text-xs text-slate-500">{note}</p></Link>;
+  return <Link href={href} className="rounded-xl border p-3 hover:border-emerald-500 hover:bg-emerald-50"><p className="font-black">{title}</p><p className="mt-1 text-xs text-slate-500">{note}</p></Link>;
 }
-function Status({ label, value, ok = false }: { label: string; value: string; ok?: boolean }) {
-  return <div className="flex items-center justify-between rounded-xl border p-3"><span>{label}</span><b className={ok ? "text-emerald-600" : "text-amber-600"}>{value}</b></div>;
+
+function LineChart({ points }: { points: ChartPoint[] }) {
+  const width = 760;
+  const height = 240;
+  const pad = 28;
+  const max = Math.max(...points.map((point) => point.value), 1);
+  const coords = points.map((point, index) => {
+    const x = pad + (index / Math.max(points.length - 1, 1)) * (width - pad * 2);
+    const y = height - pad - (point.value / max) * (height - pad * 2);
+    return { x, y, ...point };
+  });
+  const path = coords.map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`).join(" ");
+  const area = `${path} L${coords.at(-1)?.x ?? pad},${height - pad} L${coords[0]?.x ?? pad},${height - pad} Z`;
+  return <div><svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Hourly sales line chart"><defs><linearGradient id="salesArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity="0.35"/><stop offset="100%" stopColor="#10b981" stopOpacity="0.03"/></linearGradient></defs>{[0,1,2,3,4].map((line) => <line key={line} x1={pad} x2={width-pad} y1={pad + line * ((height-pad*2)/4)} y2={pad + line * ((height-pad*2)/4)} stroke="#e2e8f0" />)}<path d={area} fill="url(#salesArea)"/><path d={path} fill="none" stroke="#059669" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>{coords.filter((_, index) => index % 3 === 0).map((point) => <g key={point.label}><circle cx={point.x} cy={point.y} r="4" fill="#059669"/><text x={point.x} y={height-7} textAnchor="middle" fontSize="10" fill="#64748b">{point.label.slice(0,2)}</text></g>)}</svg><p className="mt-2 text-sm text-slate-500">Peak hour: {coords.reduce((best, point) => point.value > best.value ? point : best, coords[0] || { label: "—", value: 0, x: 0, y: 0 }).label} · {money(Math.max(...points.map((point) => point.value), 0))}</p></div>;
+}
+
+function DonutChart({ rows, total }: { rows: [string, number][]; total: number }) {
+  const colors = ["#059669", "#2563eb", "#f59e0b", "#7c3aed", "#e11d48", "#0f766e"];
+  let offset = 0;
+  const radius = 58;
+  const circumference = 2 * Math.PI * radius;
+  return <div className="grid items-center gap-4 sm:grid-cols-[220px_1fr]"><svg viewBox="0 0 220 220" className="mx-auto w-full max-w-[220px]" role="img" aria-label="Sales by source donut chart"><circle cx="110" cy="110" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="26"/>{rows.map(([name, value], index) => { const pct = total ? value / total : 0; const dash = pct * circumference; const element = <circle key={name} cx="110" cy="110" r={radius} fill="none" stroke={colors[index % colors.length]} strokeWidth="26" strokeDasharray={`${dash} ${circumference-dash}`} strokeDashoffset={-offset} transform="rotate(-90 110 110)"/>; offset += dash; return element; })}<text x="110" y="104" textAnchor="middle" fontSize="13" fill="#64748b">Total Sales</text><text x="110" y="126" textAnchor="middle" fontSize="20" fontWeight="800" fill="#0f172a">{money(total)}</text></svg><div className="space-y-3">{rows.length ? rows.map(([name, value], index) => <div key={name} className="flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} /><span className="font-bold">{label(name)}</span></div><span>{money(value)} · {total ? ((value/total)*100).toFixed(0) : 0}%</span></div>) : <p className="text-sm text-slate-500">No sales data today.</p>}</div></div>;
+}
+
+function GroupedBars({ rows, firstLabel, secondLabel }: { rows: { label: string; first: number; second: number }[]; firstLabel: string; secondLabel: string }) {
+  const max = Math.max(...rows.flatMap((row) => [row.first, row.second]), 1);
+  return <div><div className="mb-4 flex gap-4 text-sm"><span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-slate-900" />{firstLabel}</span><span className="flex items-center gap-2"><span className="h-3 w-3 rounded bg-emerald-500" />{secondLabel}</span></div><div className="space-y-5">{rows.map((row) => <div key={row.label}><div className="mb-2 flex justify-between"><b>{row.label}</b><span className="text-sm text-slate-500">{money(row.first)} / {money(row.second)}</span></div><div className="space-y-2"><div className="h-3 rounded-full bg-slate-100"><div className="h-3 rounded-full bg-slate-900" style={{ width: `${(row.first/max)*100}%` }} /></div><div className="h-3 rounded-full bg-slate-100"><div className="h-3 rounded-full bg-emerald-500" style={{ width: `${(row.second/max)*100}%` }} /></div></div></div>)}</div></div>;
+}
+
+function HorizontalBars({ rows, moneyScale = false }: { rows: { label: string; value: number; note?: string }[]; moneyScale?: boolean }) {
+  const max = Math.max(...rows.map((row) => row.value), 1);
+  return <div className="space-y-4">{rows.length ? rows.map((row) => <div key={row.label}><div className="mb-1 flex items-center justify-between gap-3"><span className="truncate font-bold">{row.label}</span><span className="shrink-0 text-sm text-slate-500">{row.note ?? (moneyScale ? money(row.value) : row.value)}</span></div><div className="h-3 rounded-full bg-slate-100"><div className="h-3 rounded-full bg-emerald-500" style={{ width: `${(row.value/max)*100}%` }} /></div></div>) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No data available today.</p>}</div>;
+}
+
+function Gauge({ value, label: title }: { value: number; label: string }) {
+  const safe = Math.max(0, Math.min(value, 100));
+  return <div className="mt-5"><div className="flex items-end justify-between"><div><p className="text-sm font-bold text-slate-500">{title}</p><p className="mt-1 text-3xl font-black">{safe.toFixed(1)}%</p></div><span className={`rounded-full px-3 py-1 text-xs font-black ${safe >= 75 ? "bg-emerald-100 text-emerald-700" : safe >= 60 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{safe >= 75 ? "Healthy" : safe >= 60 ? "Watch" : "Low"}</span></div><div className="mt-3 h-4 rounded-full bg-slate-100"><div className={`h-4 rounded-full ${safe >= 75 ? "bg-emerald-500" : safe >= 60 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${safe}%` }} /></div></div>;
 }
