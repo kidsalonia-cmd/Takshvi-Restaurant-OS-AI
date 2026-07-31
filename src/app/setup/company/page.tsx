@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 const initialCompany = {
   name: "Takshvi Foods",
@@ -16,17 +16,67 @@ const initialCompany = {
 
 export default function CompanySetupPage() {
   const [company, setCompany] = useState(initialCompany);
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState<"idle" | "loading" | "saving" | "saved" | "error">("loading");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    async function loadCompany() {
+      try {
+        const response = await fetch("/api/company", { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Unable to load company.");
+
+        if (result.company) {
+          setCompany({
+            name: result.company.name ?? "",
+            legalName: result.company.legal_name ?? "",
+            gstin: result.company.gstin ?? "",
+            pan: result.company.pan ?? "",
+            email: result.company.email ?? "",
+            phone: result.company.phone ?? "",
+            website: result.company.website ?? "",
+            currency: result.company.currency ?? "INR",
+            timezone: result.company.timezone ?? "Asia/Kolkata",
+          });
+        }
+        setStatus("idle");
+      } catch (error) {
+        setStatus("error");
+        setMessage(error instanceof Error ? error.message : "Unable to load company.");
+      }
+    }
+
+    loadCompany();
+  }, []);
 
   function update(field: keyof typeof company, value: string) {
-    setSaved(false);
+    setStatus("idle");
+    setMessage("");
     setCompany((current) => ({ ...current, [field]: value }));
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    window.localStorage.setItem("takshvi-company-draft", JSON.stringify(company));
-    setSaved(true);
+    if (status === "saving") return;
+
+    setStatus("saving");
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/company", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(company),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to save company.");
+
+      setStatus("saved");
+      setMessage("Company profile saved permanently in Supabase. Repeated clicks update the same company record.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "Unable to save company.");
+    }
   }
 
   return (
@@ -41,6 +91,8 @@ export default function CompanySetupPage() {
               This becomes the parent entity for every restaurant location, brand, user, order and inventory record.
             </p>
           </div>
+
+          {status === "loading" ? <p className="mt-7 text-sm font-bold text-slate-500">Loading saved company...</p> : null}
 
           <form onSubmit={submit} className="mt-7 space-y-7">
             <section className="grid gap-5 md:grid-cols-2">
@@ -68,17 +120,15 @@ export default function CompanySetupPage() {
             </section>
 
             <div className="flex flex-col gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs leading-5 text-slate-400">
-                Draft data is currently saved on this computer. It will move to Supabase after the database connection is configured.
-              </p>
-              <button className="h-12 shrink-0 rounded-xl bg-slate-950 px-6 font-black text-white transition hover:bg-emerald-500 hover:text-slate-950">
-                Save company profile
+              <p className="text-xs leading-5 text-slate-400">This form now creates one company record and updates that same record on future saves.</p>
+              <button disabled={status === "saving" || status === "loading"} className="h-12 shrink-0 rounded-xl bg-slate-950 px-6 font-black text-white transition hover:bg-emerald-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50">
+                {status === "saving" ? "Saving..." : "Save company profile"}
               </button>
             </div>
 
-            {saved ? (
-              <div className="rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
-                Company draft saved successfully. Next: connect Supabase and create the first location.
+            {message ? (
+              <div className={`rounded-xl p-4 text-sm font-bold ${status === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+                {message}
               </div>
             ) : null}
           </form>
@@ -88,32 +138,11 @@ export default function CompanySetupPage() {
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  required = false,
-  type = "text",
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  required?: boolean;
-  type?: string;
-  placeholder?: string;
-}) {
+function Field({ label, value, onChange, required = false, type = "text", placeholder }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; type?: string; placeholder?: string; }) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-bold">{label}{required ? " *" : ""}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        required={required}
-        type={type}
-        placeholder={placeholder}
-        className="h-12 w-full rounded-xl border border-slate-200 px-4 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
-      />
+      <input value={value} onChange={(event) => onChange(event.target.value)} required={required} type={type} placeholder={placeholder} className="h-12 w-full rounded-xl border border-slate-200 px-4 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
     </label>
   );
 }
