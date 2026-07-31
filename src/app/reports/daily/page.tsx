@@ -3,63 +3,270 @@
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
-type Location={id:string;name:string;code:string};
-type Brand={id:string;name:string;location_id:string};
-type Order={id:string;order_number:string;location_id:string;brand_id:string;source:string;status:string;subtotal:number;packaging_amount:number;discount_amount:number;tax_amount:number;grand_total:number;payment_status:string;payment_method:string|null;created_at:string};
+type Location = { id: string; name: string; code: string };
+type Brand = { id: string; name: string; location_id: string };
+type Order = {
+  id: string;
+  order_number: string;
+  location_id: string;
+  brand_id: string;
+  source: string;
+  status: string;
+  subtotal: number;
+  packaging_amount: number;
+  discount_amount: number;
+  tax_amount: number;
+  grand_total: number;
+  payment_status: string;
+  payment_method: string | null;
+  platform_gross_amount: number | null;
+  platform_commission_amount: number;
+  platform_other_deductions: number;
+  platform_payout_amount: number | null;
+  payout_status: string;
+  created_at: string;
+};
+type OrderItem = {
+  id: string;
+  order_id: string;
+  item_name: string;
+  sku: string | null;
+  quantity: number;
+  line_total: number;
+};
 
-function cfg(){const url=process.env.NEXT_PUBLIC_SUPABASE_URL;const key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;if(!url||!key)throw new Error("Supabase environment variables are missing.");return{url,key}}
-function headers(key:string){return{apikey:key,Authorization:`Bearer ${key}`}}
-function money(v:number){return `₹${Number(v||0).toFixed(2)}`}
-function localDate(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"})}
-function startEnd(date:string){const start=new Date(`${date}T00:00:00+05:30`).toISOString();const end=new Date(`${date}T23:59:59.999+05:30`).toISOString();return{start,end}}
+const ONLINE_SOURCES = ["zomato", "swiggy", "ondc", "website"];
 
-export default function DailyReportsPage(){
- const[locations,setLocations]=useState<Location[]>([]);const[brands,setBrands]=useState<Brand[]>([]);const[orders,setOrders]=useState<Order[]>([]);const[date,setDate]=useState(localDate());const[locationId,setLocationId]=useState("all");const[brandId,setBrandId]=useState("");const[loading,setLoading]=useState(true);const[error,setError]=useState("");
- useEffect(()=>{void loadSetup()},[]);useEffect(()=>{void loadOrders()},[date,locationId]);
- async function loadSetup(){try{const{url,key}=cfg();const[lr,br]=await Promise.all([fetch(`${url}/rest/v1/locations?select=id,name,code&is_active=eq.true&order=name.asc`,{headers:headers(key)}),fetch(`${url}/rest/v1/brands?select=id,name,location_id&is_active=eq.true&order=name.asc`,{headers:headers(key)})]);if(!lr.ok)throw new Error(await lr.text());if(!br.ok)throw new Error(await br.text());setLocations(await lr.json());setBrands(await br.json())}catch(e){setError(e instanceof Error?e.message:"Unable to load report setup.")}}
- async function loadOrders(){setLoading(true);setError("");try{const{url,key}=cfg();const{start,end}=startEnd(date);const locationFilter=locationId==="all"?"":`&location_id=eq.${locationId}`;const r=await fetch(`${url}/rest/v1/orders?select=*&created_at=gte.${encodeURIComponent(start)}&created_at=lte.${encodeURIComponent(end)}${locationFilter}&order=created_at.asc`,{headers:headers(key),cache:"no-store"});if(!r.ok)throw new Error(await r.text());setOrders(await r.json())}catch(e){setError(e instanceof Error?e.message:"Unable to load daily report.")}finally{setLoading(false)}}
- const visibleBrands=brands.filter(b=>locationId==="all"||b.location_id===locationId);
- const filtered=useMemo(()=>orders.filter(o=>!brandId||o.brand_id===brandId),[orders,brandId]);
- const valid=filtered.filter(o=>o.status!=="cancelled");
- const totals={orders:valid.length,gross:valid.reduce((s,o)=>s+Number(o.subtotal)+Number(o.packaging_amount),0),discount:valid.reduce((s,o)=>s+Number(o.discount_amount),0),tax:valid.reduce((s,o)=>s+Number(o.tax_amount),0),net:valid.reduce((s,o)=>s+Number(o.grand_total),0),cancelled:filtered.filter(o=>o.status==="cancelled").length};
- const aov=totals.orders?totals.net/totals.orders:0;
- const paymentRows=Object.entries(valid.reduce<Record<string,{count:number,value:number}>>((a,o)=>{const k=o.payment_method||o.payment_status||"unknown";a[k]??={count:0,value:0};a[k].count++;a[k].value+=Number(o.grand_total);return a},{}));
- const gstRows=Object.entries(valid.reduce<Record<string,{taxable:number,tax:number,total:number,count:number}>>((a,o)=>{const rate=Number(o.tax_amount)>0&&Number(o.subtotal)+Number(o.packaging_amount)>0?Math.round((Number(o.tax_amount)/(Number(o.subtotal)+Number(o.packaging_amount)))*100):0;const k=`${rate}%`;a[k]??={taxable:0,tax:0,total:0,count:0};a[k].taxable+=Number(o.subtotal)+Number(o.packaging_amount)-Number(o.discount_amount);a[k].tax+=Number(o.tax_amount);a[k].total+=Number(o.grand_total);a[k].count++;return a},{}));
- function exportXls(){
-  const orderRows=filtered.map(o=>({
-   "Order No":o.order_number,
-   "Date & Time":new Date(o.created_at).toLocaleString("en-IN"),
-   Location:locations.find(l=>l.id===o.location_id)?.name||"",
-   Brand:brands.find(b=>b.id===o.brand_id)?.name||"",
-   Source:o.source.replaceAll("_"," "),
-   Payment:(o.payment_method||o.payment_status).replaceAll("_"," "),
-   Status:o.status,
-   Taxable:Number((Number(o.subtotal)+Number(o.packaging_amount)-Number(o.discount_amount)).toFixed(2)),
-   GST:Number(Number(o.tax_amount).toFixed(2)),
-   Total:Number(Number(o.grand_total).toFixed(2)),
-  }));
-  const summaryRows=[
-   {Metric:"Report Date",Value:date},
-   {Metric:"Orders",Value:totals.orders},
-   {Metric:"Net Sales",Value:Number(totals.net.toFixed(2))},
-   {Metric:"Average Order Value",Value:Number(aov.toFixed(2))},
-   {Metric:"GST",Value:Number(totals.tax.toFixed(2))},
-   {Metric:"Discount",Value:Number(totals.discount.toFixed(2))},
-   {Metric:"Cancelled Orders",Value:totals.cancelled},
-  ];
-  const paymentSheetRows=paymentRows.map(([method,value])=>({Method:method.replaceAll("_"," "),Orders:value.count,Amount:Number(value.value.toFixed(2))}));
-  const gstSheetRows=gstRows.map(([rate,value])=>({Rate:rate,Orders:value.count,Taxable:Number(value.taxable.toFixed(2)),GST:Number(value.tax.toFixed(2)),Total:Number(value.total.toFixed(2))}));
-  const workbook=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(summaryRows),"Summary");
-  XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(orderRows),"Order Register");
-  XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(paymentSheetRows),"Payments");
-  XLSX.utils.book_append_sheet(workbook,XLSX.utils.json_to_sheet(gstSheetRows),"GST Summary");
-  XLSX.writeFile(workbook,`Takshvi_Daily_Report_${date}.xls`,{bookType:"biff8"});
- }
- return <main className="min-h-screen bg-slate-100 p-5 text-slate-950 md:p-8"><div className="mx-auto max-w-7xl space-y-6"><header className="rounded-3xl bg-slate-950 p-7 text-white"><p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Finance Reports</p><h1 className="mt-2 text-3xl font-black">Daily Sales, Payments & GST</h1></header>
- <section className="grid gap-3 rounded-3xl bg-white p-5 shadow-sm md:grid-cols-4"><input type="date" value={date} onChange={e=>setDate(e.target.value)} className="h-12 rounded-xl border px-4"/><select value={locationId} onChange={e=>{setLocationId(e.target.value);setBrandId("")}} className="h-12 rounded-xl border px-4"><option value="all">All locations</option>{locations.map(l=><option key={l.id} value={l.id}>{l.name} ({l.code})</option>)}</select><select value={brandId} onChange={e=>setBrandId(e.target.value)} className="h-12 rounded-xl border px-4"><option value="">All brands</option>{visibleBrands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><button onClick={exportXls} className="h-12 rounded-xl bg-slate-950 font-black text-white">Download Excel (.xls)</button></section>
- <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6"><Card t="Orders" v={String(totals.orders)}/><Card t="Net Sales" v={money(totals.net)}/><Card t="AOV" v={money(aov)}/><Card t="GST" v={money(totals.tax)}/><Card t="Discount" v={money(totals.discount)}/><Card t="Cancelled" v={String(totals.cancelled)} danger={totals.cancelled>0}/></section>
- <section className="grid gap-5 lg:grid-cols-2"><Report title="Payment Summary"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Method</th><th>Orders</th><th className="text-right">Amount</th></tr></thead><tbody>{paymentRows.map(([k,v])=><tr key={k} className="border-b"><td className="p-3 font-bold capitalize">{k.replaceAll("_"," ")}</td><td className="text-center">{v.count}</td><td className="text-right font-black">{money(v.value)}</td></tr>)}</tbody></table></Report><Report title="GST Summary"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Rate</th><th>Orders</th><th className="text-right">Taxable</th><th className="text-right">GST</th></tr></thead><tbody>{gstRows.map(([k,v])=><tr key={k} className="border-b"><td className="p-3 font-bold">{k}</td><td className="text-center">{v.count}</td><td className="text-right">{money(v.taxable)}</td><td className="text-right font-black">{money(v.tax)}</td></tr>)}</tbody></table></Report></section>
- <Report title="Order Register"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Order</th><th>Time</th><th>Brand</th><th>Source</th><th>Payment</th><th>Status</th><th className="text-right">GST</th><th className="text-right">Total</th></tr></thead><tbody>{filtered.map(o=><tr key={o.id} className="border-b"><td className="p-3 font-bold">{o.order_number}</td><td>{new Date(o.created_at).toLocaleTimeString("en-IN")}</td><td>{brands.find(b=>b.id===o.brand_id)?.name||"—"}</td><td className="capitalize">{o.source.replaceAll("_"," ")}</td><td className="capitalize">{(o.payment_method||o.payment_status).replaceAll("_"," ")}</td><td className={o.status==="cancelled"?"font-bold text-red-600":"capitalize"}>{o.status}</td><td className="text-right">{money(o.tax_amount)}</td><td className="text-right font-black">{money(o.grand_total)}</td></tr>)}</tbody></table></div></Report>{loading?<p className="font-bold text-slate-500">Loading report...</p>:null}{error?<p className="rounded-xl bg-red-50 p-4 font-bold text-red-700">{error}</p>:null}</div></main>}
-function Card({t,v,danger=false}:{t:string;v:string;danger?:boolean}){return <div className={`rounded-2xl p-5 shadow-sm ${danger?"bg-red-50":"bg-white"}`}><p className="text-sm font-bold text-slate-500">{t}</p><p className={`mt-2 text-2xl font-black ${danger?"text-red-600":""}`}>{v}</p></div>}
-function Report({title,children}:{title:string;children:React.ReactNode}){return <section className="rounded-3xl bg-white p-5 shadow-sm"><h2 className="mb-4 text-xl font-black">{title}</h2>{children}</section>}
+function cfg() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) throw new Error("Supabase environment variables are missing.");
+  return { url, key };
+}
+function headers(key: string) { return { apikey: key, Authorization: `Bearer ${key}` }; }
+function money(value: number) { return `₹${Number(value || 0).toFixed(2)}`; }
+function localDate() { return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); }
+function startEnd(date: string) {
+  return {
+    start: new Date(`${date}T00:00:00+05:30`).toISOString(),
+    end: new Date(`${date}T23:59:59.999+05:30`).toISOString(),
+  };
+}
+function title(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase()); }
+
+export default function DailyReportsPage() {
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [items, setItems] = useState<OrderItem[]>([]);
+  const [date, setDate] = useState(localDate());
+  const [locationId, setLocationId] = useState("all");
+  const [brandId, setBrandId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => { void loadSetup(); }, []);
+  useEffect(() => { void loadOrders(); }, [date, locationId]);
+
+  async function loadSetup() {
+    try {
+      const { url, key } = cfg();
+      const [locationResponse, brandResponse] = await Promise.all([
+        fetch(`${url}/rest/v1/locations?select=id,name,code&is_active=eq.true&order=name.asc`, { headers: headers(key) }),
+        fetch(`${url}/rest/v1/brands?select=id,name,location_id&is_active=eq.true&order=name.asc`, { headers: headers(key) }),
+      ]);
+      if (!locationResponse.ok) throw new Error(await locationResponse.text());
+      if (!brandResponse.ok) throw new Error(await brandResponse.text());
+      setLocations(await locationResponse.json());
+      setBrands(await brandResponse.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load report setup.");
+    }
+  }
+
+  async function loadOrders() {
+    setLoading(true);
+    setError("");
+    try {
+      const { url, key } = cfg();
+      const { start, end } = startEnd(date);
+      const locationFilter = locationId === "all" ? "" : `&location_id=eq.${locationId}`;
+      const orderResponse = await fetch(
+        `${url}/rest/v1/orders?select=*&created_at=gte.${encodeURIComponent(start)}&created_at=lte.${encodeURIComponent(end)}${locationFilter}&order=created_at.asc`,
+        { headers: headers(key), cache: "no-store" },
+      );
+      if (!orderResponse.ok) throw new Error(await orderResponse.text());
+      const orderRows = (await orderResponse.json()) as Order[];
+      setOrders(orderRows);
+
+      const ids = orderRows.map((order) => order.id);
+      if (!ids.length) {
+        setItems([]);
+        return;
+      }
+      const itemResponse = await fetch(
+        `${url}/rest/v1/order_items?order_id=in.(${ids.join(",")})&select=id,order_id,item_name,sku,quantity,line_total`,
+        { headers: headers(key), cache: "no-store" },
+      );
+      if (!itemResponse.ok) throw new Error(await itemResponse.text());
+      setItems(await itemResponse.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load daily report.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const visibleBrands = brands.filter((brand) => locationId === "all" || brand.location_id === locationId);
+  const filtered = useMemo(() => orders.filter((order) => !brandId || order.brand_id === brandId), [orders, brandId]);
+  const valid = filtered.filter((order) => order.status !== "cancelled");
+  const validOrderIds = new Set(valid.map((order) => order.id));
+  const filteredItems = items.filter((item) => validOrderIds.has(item.order_id));
+
+  const totals = {
+    orders: valid.length,
+    discount: valid.reduce((sum, order) => sum + Number(order.discount_amount), 0),
+    tax: valid.reduce((sum, order) => sum + Number(order.tax_amount), 0),
+    net: valid.reduce((sum, order) => sum + Number(order.grand_total), 0),
+    cancelled: filtered.filter((order) => order.status === "cancelled").length,
+  };
+  const aov = totals.orders ? totals.net / totals.orders : 0;
+
+  const onlineOrders = valid.filter((order) => ONLINE_SOURCES.includes(order.source));
+  const onlineSales = onlineOrders.reduce((sum, order) => sum + Number(order.platform_gross_amount ?? order.grand_total), 0);
+  const onlinePayout = onlineOrders.reduce((sum, order) => {
+    const fallback = Number(order.platform_gross_amount ?? order.grand_total)
+      - Number(order.platform_commission_amount || 0)
+      - Number(order.platform_other_deductions || 0);
+    return sum + Number(order.platform_payout_amount ?? Math.max(0, fallback));
+  }, 0);
+  const payoutRatio = onlineSales > 0 ? (onlinePayout / onlineSales) * 100 : 0;
+  const onlineAov = onlineOrders.length ? onlineSales / onlineOrders.length : 0;
+
+  const itemPerformance = Object.values(filteredItems.reduce<Record<string, { name: string; sku: string; qty: number; revenue: number }>>((acc, item) => {
+    const key = item.sku || item.item_name;
+    acc[key] ??= { name: item.item_name, sku: item.sku || "", qty: 0, revenue: 0 };
+    acc[key].qty += Number(item.quantity || 0);
+    acc[key].revenue += Number(item.line_total || 0);
+    return acc;
+  }, {})).sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
+  const highestItem = itemPerformance[0];
+
+  const paymentRows = Object.entries(valid.reduce<Record<string, { count: number; value: number }>>((acc, order) => {
+    const key = order.payment_method || order.payment_status || "unknown";
+    acc[key] ??= { count: 0, value: 0 };
+    acc[key].count += 1;
+    acc[key].value += Number(order.grand_total);
+    return acc;
+  }, {}));
+
+  const platformRows = Object.entries(onlineOrders.reduce<Record<string, { orders: number; sales: number; payout: number }>>((acc, order) => {
+    const gross = Number(order.platform_gross_amount ?? order.grand_total);
+    const payout = Number(order.platform_payout_amount ?? Math.max(0, gross - Number(order.platform_commission_amount || 0) - Number(order.platform_other_deductions || 0)));
+    acc[order.source] ??= { orders: 0, sales: 0, payout: 0 };
+    acc[order.source].orders += 1;
+    acc[order.source].sales += gross;
+    acc[order.source].payout += payout;
+    return acc;
+  }, {}));
+
+  const gstRows = Object.entries(valid.reduce<Record<string, { taxable: number; tax: number; count: number }>>((acc, order) => {
+    const base = Number(order.subtotal) + Number(order.packaging_amount);
+    const rate = Number(order.tax_amount) > 0 && base > 0 ? Math.round((Number(order.tax_amount) / base) * 100) : 0;
+    const key = `${rate}%`;
+    acc[key] ??= { taxable: 0, tax: 0, count: 0 };
+    acc[key].taxable += base - Number(order.discount_amount);
+    acc[key].tax += Number(order.tax_amount);
+    acc[key].count += 1;
+    return acc;
+  }, {}));
+
+  function exportExcel() {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+      { Metric: "Orders", Value: totals.orders },
+      { Metric: "Net Sales", Value: totals.net },
+      { Metric: "Overall AOV", Value: aov },
+      { Metric: "Online Orders", Value: onlineOrders.length },
+      { Metric: "Online Sales", Value: onlineSales },
+      { Metric: "Online Payout", Value: onlinePayout },
+      { Metric: "Payout Ratio %", Value: payoutRatio },
+      { Metric: "Online AOV", Value: onlineAov },
+      { Metric: "Highest Selling Item", Value: highestItem?.name || "—" },
+      { Metric: "Highest Item Qty", Value: highestItem?.qty || 0 },
+      { Metric: "GST", Value: totals.tax },
+      { Metric: "Discount", Value: totals.discount },
+      { Metric: "Cancelled", Value: totals.cancelled },
+    ]), "Summary");
+
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(filtered.map((order) => ({
+      "Order No": order.order_number,
+      Time: new Date(order.created_at).toLocaleString("en-IN"),
+      Location: locations.find((location) => location.id === order.location_id)?.name || "",
+      Brand: brands.find((brand) => brand.id === order.brand_id)?.name || "",
+      Source: title(order.source),
+      Payment: title(order.payment_method || order.payment_status),
+      Status: title(order.status),
+      "Online Gross": ONLINE_SOURCES.includes(order.source) ? Number(order.platform_gross_amount ?? order.grand_total) : 0,
+      "Platform Payout": ONLINE_SOURCES.includes(order.source) ? Number(order.platform_payout_amount ?? 0) : 0,
+      GST: Number(order.tax_amount),
+      Total: Number(order.grand_total),
+    })), "Order Register");
+
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(platformRows.map(([platform, value]) => ({
+      Platform: title(platform), Orders: value.orders, Sales: value.sales, Payout: value.payout,
+      "Payout Ratio %": value.sales ? (value.payout / value.sales) * 100 : 0,
+      AOV: value.orders ? value.sales / value.orders : 0,
+    }))), "Online Platforms");
+
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(itemPerformance.map((item, index) => ({
+      Rank: index + 1, Item: item.name, SKU: item.sku, Quantity: item.qty, Revenue: item.revenue,
+    }))), "Item Performance");
+
+    XLSX.writeFile(workbook, `Takshvi_Daily_Report_${date}.xls`, { bookType: "biff8" });
+  }
+
+  return <main className="min-h-screen bg-slate-100 p-5 text-slate-950 md:p-8"><div className="mx-auto max-w-7xl space-y-6">
+    <header className="rounded-3xl bg-slate-950 p-7 text-white"><p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Finance Reports</p><h1 className="mt-2 text-3xl font-black">Daily Sales, Payouts & GST</h1></header>
+
+    <section className="grid gap-3 rounded-3xl bg-white p-5 shadow-sm md:grid-cols-4">
+      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-12 rounded-xl border px-4" />
+      <select value={locationId} onChange={(e) => { setLocationId(e.target.value); setBrandId(""); }} className="h-12 rounded-xl border px-4"><option value="all">All locations</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select>
+      <select value={brandId} onChange={(e) => setBrandId(e.target.value)} className="h-12 rounded-xl border px-4"><option value="">All brands</option>{visibleBrands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select>
+      <button onClick={exportExcel} className="h-12 rounded-xl bg-slate-950 font-black text-white">Download Excel (.xls)</button>
+    </section>
+
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Card title="Net Sales" value={money(totals.net)} note={`${totals.orders} completed orders`} />
+      <Card title="Overall AOV" value={money(aov)} />
+      <Card title="Online Sales" value={money(onlineSales)} note={`${onlineOrders.length} online orders · AOV ${money(onlineAov)}`} />
+      <Card title="Online Payout" value={money(onlinePayout)} note={`Payout ratio ${payoutRatio.toFixed(1)}%`} accent />
+      <Card title="Highest Selling Item" value={highestItem?.name || "—"} note={highestItem ? `${highestItem.qty.toFixed(0)} qty · ${money(highestItem.revenue)}` : "No item sales"} />
+      <Card title="GST" value={money(totals.tax)} />
+      <Card title="Discount" value={money(totals.discount)} />
+      <Card title="Cancelled" value={String(totals.cancelled)} danger={totals.cancelled > 0} />
+    </section>
+
+    <section className="grid gap-5 lg:grid-cols-2">
+      <Report title="Online Sales vs Payout"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Platform</th><th>Orders</th><th className="text-right">Sales</th><th className="text-right">Payout</th><th className="text-right">Ratio</th></tr></thead><tbody>{platformRows.map(([platform, value]) => <tr key={platform} className="border-b"><td className="p-3 font-bold">{title(platform)}</td><td className="text-center">{value.orders}</td><td className="text-right">{money(value.sales)}</td><td className="text-right font-black">{money(value.payout)}</td><td className="text-right font-bold">{value.sales ? ((value.payout / value.sales) * 100).toFixed(1) : "0.0"}%</td></tr>)}</tbody></table></Report>
+      <Report title="Top Selling Items"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Item</th><th className="text-right">Qty</th><th className="text-right">Revenue</th></tr></thead><tbody>{itemPerformance.slice(0, 10).map((item, index) => <tr key={`${item.sku}-${item.name}`} className="border-b"><td className="p-3 font-bold">#{index + 1} {item.name}</td><td className="text-right">{item.qty.toFixed(0)}</td><td className="text-right font-black">{money(item.revenue)}</td></tr>)}</tbody></table></Report>
+    </section>
+
+    <section className="grid gap-5 lg:grid-cols-2">
+      <Report title="Payment Summary"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Method</th><th>Orders</th><th className="text-right">Amount</th></tr></thead><tbody>{paymentRows.map(([key, value]) => <tr key={key} className="border-b"><td className="p-3 font-bold">{title(key)}</td><td className="text-center">{value.count}</td><td className="text-right font-black">{money(value.value)}</td></tr>)}</tbody></table></Report>
+      <Report title="GST Summary"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Rate</th><th>Orders</th><th className="text-right">Taxable</th><th className="text-right">GST</th></tr></thead><tbody>{gstRows.map(([key, value]) => <tr key={key} className="border-b"><td className="p-3 font-bold">{key}</td><td className="text-center">{value.count}</td><td className="text-right">{money(value.taxable)}</td><td className="text-right font-black">{money(value.tax)}</td></tr>)}</tbody></table></Report>
+    </section>
+
+    <Report title="Order Register"><div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-sm"><thead><tr className="border-b"><th className="p-3 text-left">Order</th><th>Time</th><th>Brand</th><th>Source</th><th>Payment</th><th>Status</th><th className="text-right">Online Gross</th><th className="text-right">Payout</th><th className="text-right">GST</th><th className="text-right">Total</th></tr></thead><tbody>{filtered.map((order) => <tr key={order.id} className="border-b"><td className="p-3 font-bold">{order.order_number}</td><td>{new Date(order.created_at).toLocaleTimeString("en-IN")}</td><td>{brands.find((brand) => brand.id === order.brand_id)?.name || "—"}</td><td>{title(order.source)}</td><td>{title(order.payment_method || order.payment_status)}</td><td className={order.status === "cancelled" ? "font-bold text-red-600" : ""}>{title(order.status)}</td><td className="text-right">{ONLINE_SOURCES.includes(order.source) ? money(Number(order.platform_gross_amount ?? order.grand_total)) : "—"}</td><td className="text-right">{ONLINE_SOURCES.includes(order.source) ? money(Number(order.platform_payout_amount ?? 0)) : "—"}</td><td className="text-right">{money(order.tax_amount)}</td><td className="text-right font-black">{money(order.grand_total)}</td></tr>)}</tbody></table></div></Report>
+
+    {loading ? <p className="font-bold text-slate-500">Loading report...</p> : null}
+    {error ? <p className="rounded-xl bg-red-50 p-4 font-bold text-red-700">{error}</p> : null}
+  </div></main>;
+}
+
+function Card({ title, value, note, danger = false, accent = false }: { title: string; value: string; note?: string; danger?: boolean; accent?: boolean }) {
+  return <div className={`rounded-2xl p-5 shadow-sm ${danger ? "bg-red-50" : accent ? "bg-emerald-50" : "bg-white"}`}><p className="text-sm font-bold text-slate-500">{title}</p><p className={`mt-2 text-2xl font-black ${danger ? "text-red-600" : accent ? "text-emerald-700" : ""}`}>{value}</p>{note ? <p className="mt-2 text-xs font-bold text-slate-500">{note}</p> : null}</div>;
+}
+function Report({ title: heading, children }: { title: string; children: React.ReactNode }) {
+  return <section className="rounded-3xl bg-white p-5 shadow-sm"><h2 className="mb-4 text-xl font-black">{heading}</h2>{children}</section>;
+}
