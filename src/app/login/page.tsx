@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 const demoAccounts = [
@@ -11,6 +11,14 @@ const demoAccounts = [
 ];
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginLoading />}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("admin@takshvi.in");
@@ -95,34 +103,17 @@ export default function LoginPage() {
             <form onSubmit={submit} className="mt-8 space-y-5">
               <label className="block">
                 <span className="mb-2 block text-sm font-bold">Work email</span>
-                <input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  type="email"
-                  autoComplete="email"
-                  className="h-12 w-full rounded-xl border border-slate-200 px-4 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
-                />
+                <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" className="h-12 w-full rounded-xl border border-slate-200 px-4 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
               </label>
 
               <label className="block">
                 <span className="mb-2 block text-sm font-bold">Password</span>
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  type="password"
-                  autoComplete="current-password"
-                  className="h-12 w-full rounded-xl border border-slate-200 px-4 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
-                />
+                <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" className="h-12 w-full rounded-xl border border-slate-200 px-4 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" />
               </label>
 
               <div className="flex items-center justify-between gap-3 text-sm">
                 <label className="flex items-center gap-2 font-semibold text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={(event) => setRemember(event.target.checked)}
-                    className="h-4 w-4 accent-emerald-500"
-                  />
+                  <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="h-4 w-4 accent-emerald-500" />
                   Remember me
                 </label>
                 <button type="button" className="font-bold text-emerald-600">Forgot password?</button>
@@ -130,10 +121,7 @@ export default function LoginPage() {
 
               {error ? <p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-600">{error}</p> : null}
 
-              <button
-                disabled={loading}
-                className="h-12 w-full rounded-xl bg-slate-950 font-black text-white transition hover:bg-emerald-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+              <button disabled={loading} className="h-12 w-full rounded-xl bg-slate-950 font-black text-white transition hover:bg-emerald-500 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60">
                 {loading ? "Signing in..." : "Sign in securely"}
               </button>
             </form>
@@ -142,14 +130,7 @@ export default function LoginPage() {
               <p className="text-xs font-black uppercase tracking-wider text-slate-400">Development role accounts</p>
               <div className="mt-3 space-y-2">
                 {demoAccounts.map((account) => (
-                  <button
-                    key={account.email}
-                    onClick={() => {
-                      setEmail(account.email);
-                      setPassword("Takshvi@123");
-                    }}
-                    className="flex w-full items-center justify-between rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm transition hover:ring-2 hover:ring-emerald-300"
-                  >
+                  <button key={account.email} onClick={() => { setEmail(account.email); setPassword("Takshvi@123"); }} className="flex w-full items-center justify-between rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm transition hover:ring-2 hover:ring-emerald-300">
                     <span className="font-bold">{account.role}</span>
                     <span className="text-slate-500">{account.email}</span>
                   </button>
@@ -160,6 +141,14 @@ export default function LoginPage() {
           </div>
         </section>
       </div>
+    </main>
+  );
+}
+
+function LoginLoading() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-white">
+      <div className="rounded-2xl bg-white/10 px-6 py-4 font-bold">Loading secure login...</div>
     </main>
   );
 }
