@@ -80,12 +80,46 @@ alter table marketplace_reports enable row level security;
 alter table marketplace_order_facts enable row level security;
 alter table marketplace_item_facts enable row level security;
 
-create policy if not exists marketplace_reports_read on marketplace_reports for select using (true);
-create policy if not exists marketplace_reports_insert on marketplace_reports for insert with check (true);
-create policy if not exists marketplace_reports_update on marketplace_reports for update using (true) with check (true);
+drop policy if exists marketplace_reports_read on marketplace_reports;
+drop policy if exists marketplace_reports_insert on marketplace_reports;
+drop policy if exists marketplace_reports_update on marketplace_reports;
+drop policy if exists marketplace_order_facts_read on marketplace_order_facts;
+drop policy if exists marketplace_order_facts_insert on marketplace_order_facts;
+drop policy if exists marketplace_item_facts_read on marketplace_item_facts;
+drop policy if exists marketplace_item_facts_insert on marketplace_item_facts;
 
-create policy if not exists marketplace_order_facts_read on marketplace_order_facts for select using (true);
-create policy if not exists marketplace_order_facts_insert on marketplace_order_facts for insert with check (true);
+create policy marketplace_reports_read
+on marketplace_reports
+for select
+using (true);
 
-create policy if not exists marketplace_item_facts_read on marketplace_item_facts for select using (true);
-create policy if not exists marketplace_item_facts_insert on marketplace_item_facts for insert with check (true);
+create policy marketplace_reports_insert
+on marketplace_reports
+for insert
+with check (true);
+
+create policy marketplace_reports_update
+on marketplace_reports
+for update
+using (true)
+with check (true);
+
+create policy marketplace_order_facts_read
+on marketplace_order_facts
+for select
+using (true);
+
+create policy marketplace_order_facts_insert
+on marketplace_order_facts
+for insert
+with check (true);
+
+create policy marketplace_item_facts_read
+on marketplace_item_facts
+for select
+using (true);
+
+create policy marketplace_item_facts_insert
+on marketplace_item_facts
+for insert
+with check (true);
