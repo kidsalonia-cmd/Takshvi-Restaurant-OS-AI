@@ -183,7 +183,8 @@ export default function DailyReportsPage() {
 
   function exportExcel() {
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+
+    const summarySheet = XLSX.utils.json_to_sheet([
       { Metric: "Orders", Value: totals.orders },
       { Metric: "Net Sales", Value: totals.net },
       { Metric: "Overall AOV", Value: aov },
@@ -197,9 +198,10 @@ export default function DailyReportsPage() {
       { Metric: "GST", Value: totals.tax },
       { Metric: "Discount", Value: totals.discount },
       { Metric: "Cancelled", Value: totals.cancelled },
-    ]), "Summary");
+    ]);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
 
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(filtered.map((order) => ({
+    const orderRegisterSheet = XLSX.utils.json_to_sheet(filtered.map((order) => ({
       "Order No": order.order_number,
       Time: new Date(order.created_at).toLocaleString("en-IN"),
       Location: locations.find((location) => location.id === order.location_id)?.name || "",
@@ -211,17 +213,27 @@ export default function DailyReportsPage() {
       "Platform Payout": ONLINE_SOURCES.includes(order.source) ? Number(order.platform_payout_amount ?? 0) : 0,
       GST: Number(order.tax_amount),
       Total: Number(order.grand_total),
-    })), "Order Register");
+    })));
+    XLSX.utils.book_append_sheet(workbook, orderRegisterSheet, "Order Register");
 
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(platformRows.map(([platform, value]) => ({
-      Platform: title(platform), Orders: value.orders, Sales: value.sales, Payout: value.payout,
+    const onlinePlatformsSheet = XLSX.utils.json_to_sheet(platformRows.map(([platform, value]) => ({
+      Platform: title(platform),
+      Orders: value.orders,
+      Sales: value.sales,
+      Payout: value.payout,
       "Payout Ratio %": value.sales ? (value.payout / value.sales) * 100 : 0,
       AOV: value.orders ? value.sales / value.orders : 0,
-    }))), "Online Platforms");
+    })));
+    XLSX.utils.book_append_sheet(workbook, onlinePlatformsSheet, "Online Platforms");
 
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(itemPerformance.map((item, index) => ({
-      Rank: index + 1, Item: item.name, SKU: item.sku, Quantity: item.qty, Revenue: item.revenue,
-    }))), "Item Performance");
+    const itemPerformanceSheet = XLSX.utils.json_to_sheet(itemPerformance.map((item, index) => ({
+      Rank: index + 1,
+      Item: item.name,
+      SKU: item.sku,
+      Quantity: item.qty,
+      Revenue: item.revenue,
+    })));
+    XLSX.utils.book_append_sheet(workbook, itemPerformanceSheet, "Item Performance");
 
     XLSX.writeFile(workbook, `Takshvi_Daily_Report_${date}.xls`, { bookType: "biff8" });
   }
