@@ -20,41 +20,62 @@ type SocialState = {
 
 const STORAGE_KEY = "takshvi-social-integrations";
 const DEFAULT_STATE: SocialState = {
-  instagramName: "",
-  instagramUsername: "",
-  instagramProfile: "",
+  instagramName: "Cafe Honeyman",
+  instagramUsername: "honeyman.ggn49",
+  instagramProfile: "https://www.instagram.com/honeyman.ggn49/",
   instagramImage: "",
   instagramFollowers: "",
   instagramPosts: "",
-  googleBusinessName: "",
+  googleBusinessName: "Cafe Honeyman",
   googleBusinessProfile: "",
   googleBusinessImage: "",
-  googleAddress: "",
+  googleAddress: "Sapphire Mall, Sector 49, Gurugram",
   googleRating: "",
   googleReviews: "",
 };
 
+function hasInstagramProfile(state: SocialState) {
+  return Boolean(state.instagramUsername.trim() || state.instagramProfile.trim());
+}
+
+function hasGoogleProfile(state: SocialState) {
+  return Boolean(state.googleBusinessName.trim() || state.googleBusinessProfile.trim());
+}
+
 export default function SocialIntegrationsPage() {
   const [state, setState] = useState<SocialState>(DEFAULT_STATE);
   const [message, setMessage] = useState("");
-  const [editing, setEditing] = useState(true);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) return;
+    if (!saved) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_STATE));
+      setState(DEFAULT_STATE);
+      return;
+    }
+
     try {
       const parsed = { ...DEFAULT_STATE, ...(JSON.parse(saved) as Partial<SocialState>) };
       setState(parsed);
-      setEditing(!(parsed.instagramName || parsed.googleBusinessName));
+      setEditing(!(hasInstagramProfile(parsed) || hasGoogleProfile(parsed)));
     } catch {
       setState(DEFAULT_STATE);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_STATE));
     }
   }, []);
 
   function save() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     setEditing(false);
-    setMessage("Instagram and Google Business profiles are now displayed inside the portal.");
+    setMessage("Profile details saved and displayed inside the portal.");
+  }
+
+  function resetProfiles() {
+    setState(DEFAULT_STATE);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_STATE));
+    setEditing(false);
+    setMessage("Default Cafe Honeyman profile details restored.");
   }
 
   return (
@@ -64,12 +85,12 @@ export default function SocialIntegrationsPage() {
           <p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Social Growth Center</p>
           <h1 className="mt-2 text-3xl font-black">Instagram & Google Business Profile</h1>
           <p className="mt-3 max-w-3xl text-sm text-slate-300">
-            View both business profiles inside Takshvi. Official login is required only for initial connection or reconnecting an expired account.
+            Your saved business profiles are displayed here. Logging into Instagram or Google in another tab does not automatically send profile data into Takshvi without OAuth API access.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link href="/" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">Main Dashboard</Link>
             <button onClick={() => setEditing((current) => !current)} className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950">
-              {editing ? "Close Setup" : "Edit Connections"}
+              {editing ? "Close Setup" : "Edit Profile Details"}
             </button>
           </div>
         </header>
@@ -79,11 +100,12 @@ export default function SocialIntegrationsPage() {
             type="instagram"
             image={state.instagramImage}
             title={state.instagramName || "Instagram Business"}
-            subtitle={state.instagramUsername ? `@${state.instagramUsername.replace(/^@/, "")}` : "Account not connected"}
+            subtitle={state.instagramUsername ? `@${state.instagramUsername.replace(/^@/, "")}` : "Username not added"}
             link={state.instagramProfile}
+            connected={hasInstagramProfile(state)}
             stats={[
-              ["Followers", state.instagramFollowers || "—"],
-              ["Posts", state.instagramPosts || "—"],
+              ["Followers", state.instagramFollowers || "Not synced"],
+              ["Posts", state.instagramPosts || "Not synced"],
             ]}
           />
 
@@ -91,11 +113,12 @@ export default function SocialIntegrationsPage() {
             type="google"
             image={state.googleBusinessImage}
             title={state.googleBusinessName || "Google Business Profile"}
-            subtitle={state.googleAddress || "Profile not connected"}
+            subtitle={state.googleAddress || "Address not added"}
             link={state.googleBusinessProfile}
+            connected={hasGoogleProfile(state)}
             stats={[
-              ["Rating", state.googleRating ? `${state.googleRating} ★` : "—"],
-              ["Reviews", state.googleReviews || "—"],
+              ["Rating", state.googleRating ? `${state.googleRating} ★` : "Not synced"],
+              ["Reviews", state.googleReviews || "Not synced"],
             ]}
           />
         </section>
@@ -106,16 +129,16 @@ export default function SocialIntegrationsPage() {
               <p className="text-xs font-black uppercase tracking-wide text-pink-600">Instagram Setup</p>
               <h2 className="mt-1 text-2xl font-black">Instagram Business Account</h2>
               <a href="https://business.facebook.com/latest/home" target="_blank" rel="noopener noreferrer" className="mt-5 block rounded-xl bg-gradient-to-r from-pink-500 to-orange-400 px-5 py-4 text-center font-black text-white">
-                Connect / Reconnect Instagram
+                Open Meta Business Suite
               </a>
               <div className="mt-4 grid gap-3">
                 <Input value={state.instagramName} placeholder="Account display name" onChange={(value) => setState((current) => ({ ...current, instagramName: value }))} />
                 <Input value={state.instagramUsername} placeholder="Instagram username" onChange={(value) => setState((current) => ({ ...current, instagramUsername: value }))} />
                 <Input value={state.instagramProfile} placeholder="Instagram profile URL" onChange={(value) => setState((current) => ({ ...current, instagramProfile: value }))} />
-                <Input value={state.instagramImage} placeholder="Profile image URL" onChange={(value) => setState((current) => ({ ...current, instagramImage: value }))} />
+                <Input value={state.instagramImage} placeholder="Profile image URL (optional)" onChange={(value) => setState((current) => ({ ...current, instagramImage: value }))} />
                 <div className="grid grid-cols-2 gap-3">
-                  <Input value={state.instagramFollowers} placeholder="Followers" onChange={(value) => setState((current) => ({ ...current, instagramFollowers: value }))} />
-                  <Input value={state.instagramPosts} placeholder="Posts" onChange={(value) => setState((current) => ({ ...current, instagramPosts: value }))} />
+                  <Input value={state.instagramFollowers} placeholder="Followers (optional)" onChange={(value) => setState((current) => ({ ...current, instagramFollowers: value }))} />
+                  <Input value={state.instagramPosts} placeholder="Posts (optional)" onChange={(value) => setState((current) => ({ ...current, instagramPosts: value }))} />
                 </div>
               </div>
             </article>
@@ -124,30 +147,35 @@ export default function SocialIntegrationsPage() {
               <p className="text-xs font-black uppercase tracking-wide text-blue-600">Google Setup</p>
               <h2 className="mt-1 text-2xl font-black">Google Business Profile</h2>
               <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="mt-5 block rounded-xl bg-blue-600 px-5 py-4 text-center font-black text-white">
-                Connect / Reconnect Google Business
+                Open Google Business Profile
               </a>
               <div className="mt-4 grid gap-3">
                 <Input value={state.googleBusinessName} placeholder="Business profile name" onChange={(value) => setState((current) => ({ ...current, googleBusinessName: value }))} />
                 <Input value={state.googleAddress} placeholder="Business address" onChange={(value) => setState((current) => ({ ...current, googleAddress: value }))} />
                 <Input value={state.googleBusinessProfile} placeholder="Google Business Profile URL" onChange={(value) => setState((current) => ({ ...current, googleBusinessProfile: value }))} />
-                <Input value={state.googleBusinessImage} placeholder="Business image URL" onChange={(value) => setState((current) => ({ ...current, googleBusinessImage: value }))} />
+                <Input value={state.googleBusinessImage} placeholder="Business image URL (optional)" onChange={(value) => setState((current) => ({ ...current, googleBusinessImage: value }))} />
                 <div className="grid grid-cols-2 gap-3">
-                  <Input value={state.googleRating} placeholder="Rating" onChange={(value) => setState((current) => ({ ...current, googleRating: value }))} />
-                  <Input value={state.googleReviews} placeholder="Review count" onChange={(value) => setState((current) => ({ ...current, googleReviews: value }))} />
+                  <Input value={state.googleRating} placeholder="Rating (optional)" onChange={(value) => setState((current) => ({ ...current, googleRating: value }))} />
+                  <Input value={state.googleReviews} placeholder="Review count (optional)" onChange={(value) => setState((current) => ({ ...current, googleReviews: value }))} />
                 </div>
               </div>
             </article>
 
-            <button type="button" onClick={save} className="h-12 rounded-xl bg-slate-950 font-black text-white lg:col-span-2">
-              Save and Display Inside Portal
-            </button>
+            <div className="grid gap-3 sm:grid-cols-2 lg:col-span-2">
+              <button type="button" onClick={save} className="h-12 rounded-xl bg-slate-950 font-black text-white">
+                Save and Display Inside Portal
+              </button>
+              <button type="button" onClick={resetProfiles} className="h-12 rounded-xl border bg-white font-black text-slate-700">
+                Restore Cafe Honeyman Defaults
+              </button>
+            </div>
           </section>
         ) : null}
 
         {message ? <p className="rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{message}</p> : null}
 
         <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          Instagram and Google do not allow their full management dashboards to be embedded inside another website. This portal displays account information here; automatic posts, live insights, reviews and replies require Meta Graph API and Google Business Profile OAuth/API access.
+          <b>Why live numbers show “Not synced”:</b> Instagram login only opens Meta Business Suite. Takshvi cannot read followers, posts, reviews, ratings or insights until Meta Graph API and Google Business Profile OAuth are configured.
         </section>
       </div>
     </main>
@@ -158,7 +186,7 @@ function Input({ value, placeholder, onChange }: { value: string; placeholder: s
   return <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="h-12 w-full rounded-xl border px-4" />;
 }
 
-function ProfileCard({ type, image, title, subtitle, link, stats }: { type: "instagram" | "google"; image: string; title: string; subtitle: string; link: string; stats: [string, string][] }) {
+function ProfileCard({ type, image, title, subtitle, link, stats, connected }: { type: "instagram" | "google"; image: string; title: string; subtitle: string; link: string; stats: [string, string][]; connected: boolean }) {
   const gradient = type === "instagram" ? "from-pink-500 to-orange-400" : "from-blue-600 to-cyan-500";
   return (
     <article className="overflow-hidden rounded-3xl bg-white shadow-sm">
@@ -168,14 +196,19 @@ function ProfileCard({ type, image, title, subtitle, link, stats }: { type: "ins
           <div className="h-24 w-24 overflow-hidden rounded-3xl border-4 border-white bg-slate-200 shadow-lg">
             {image ? <img src={image} alt="Profile" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-3xl font-black text-slate-500">{title.charAt(0)}</div>}
           </div>
-          <div className="pb-1">
-            <p className="text-xs font-black uppercase tracking-wide text-slate-500">{type === "instagram" ? "Instagram" : "Google Business"}</p>
-            <h2 className="text-xl font-black">{title}</h2>
-            <p className="text-sm text-slate-500">{subtitle}</p>
+          <div className="min-w-0 flex-1 pb-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-black uppercase tracking-wide text-slate-500">{type === "instagram" ? "Instagram" : "Google Business"}</p>
+              <span className={`rounded-full px-2 py-1 text-[10px] font-black ${connected ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                {connected ? "Profile saved" : "Setup required"}
+              </span>
+            </div>
+            <h2 className="truncate text-xl font-black">{title}</h2>
+            <p className="truncate text-sm text-slate-500">{subtitle}</p>
           </div>
         </div>
         <div className="mt-6 grid grid-cols-2 gap-3">
-          {stats.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-xl font-black">{value}</p></div>)}
+          {stats.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-lg font-black">{value}</p></div>)}
         </div>
         {link ? <a href={link} target="_blank" rel="noopener noreferrer" className="mt-4 block rounded-xl border px-4 py-3 text-center text-sm font-black">Open Public Profile</a> : null}
       </div>
