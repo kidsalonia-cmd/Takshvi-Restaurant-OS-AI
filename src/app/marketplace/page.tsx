@@ -5,7 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 
 type Location = { id: string; name: string; code: string };
 type Brand = { id: string; name: string; location_id: string };
-type SlotKey = "zomato_settlement" | "swiggy_settlement" | "online_orders" | "item_report";
+type SlotKey =
+  | "zomato_payout"
+  | "swiggy_payout"
+  | "petpooja_orders"
+  | "petpooja_items"
+  | "petpooja_sales"
+  | "other_report";
+
 type UploadResult = {
   success: boolean;
   message?: string;
@@ -26,29 +33,44 @@ type UploadResult = {
     aov: number;
     payoutRatio: number;
   };
-  topItems?: { item: string; quantity: number; sales: number }[];
 };
 
-const SLOT_CONFIG: Record<SlotKey, { title: string; note: string; accept: string }> = {
-  zomato_settlement: {
-    title: "Zomato Settlement",
-    note: "Weekly settlement or payout report",
-    accept: ".xlsx,.xls,.csv",
+type SlotConfig = {
+  title: string;
+  note: string;
+  badge: string;
+};
+
+const SLOT_CONFIG: Record<SlotKey, SlotConfig> = {
+  zomato_payout: {
+    title: "Zomato Payout Reports",
+    note: "Weekly settlement, payout and deduction reports",
+    badge: "ZOMATO",
   },
-  swiggy_settlement: {
-    title: "Swiggy Settlement",
-    note: "Weekly settlement or payout report",
-    accept: ".xlsx,.xls,.csv",
+  swiggy_payout: {
+    title: "Swiggy Payout Reports",
+    note: "Weekly settlement, payout and deduction reports",
+    badge: "SWIGGY",
   },
-  online_orders: {
-    title: "Online Order Details",
-    note: "Petpooja order detail filtered for Zomato/Swiggy",
-    accept: ".xlsx,.xls,.csv",
+  petpooja_orders: {
+    title: "Petpooja Order Details",
+    note: "Customer order detail report for online channel analysis",
+    badge: "PETPOOJA",
   },
-  item_report: {
-    title: "Online Item Report",
-    note: "Item-wise online sales report",
-    accept: ".xlsx,.xls,.csv",
+  petpooja_items: {
+    title: "Petpooja Item Reports",
+    note: "Item-wise and brand-wise sales reports",
+    badge: "PETPOOJA",
+  },
+  petpooja_sales: {
+    title: "Petpooja Sales Reports",
+    note: "Daily sales, payment, GST and category reports",
+    badge: "PETPOOJA",
+  },
+  other_report: {
+    title: "Other Marketplace Reports",
+    note: "Additional Zomato, Swiggy or marketplace reports",
+    badge: "OTHER",
   },
 };
 
@@ -72,7 +94,7 @@ export default function MarketplacePage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [locationId, setLocationId] = useState("");
   const [brandId, setBrandId] = useState("");
-  const [files, setFiles] = useState<Partial<Record<SlotKey, File>>>({});
+  const [files, setFiles] = useState<Partial<Record<SlotKey, File[]>>>({});
   const [busySlot, setBusySlot] = useState<SlotKey | null>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [message, setMessage] = useState("");
@@ -85,8 +107,14 @@ export default function MarketplacePage() {
     try {
       const { url, key } = config();
       const [locationRes, brandRes] = await Promise.all([
-        fetch(`${url}/rest/v1/locations?select=id,name,code&is_active=eq.true&order=name.asc`, { headers: authHeaders(key), cache: "no-store" }),
-        fetch(`${url}/rest/v1/brands?select=id,name,location_id&is_active=eq.true&order=name.asc`, { headers: authHeaders(key), cache: "no-store" }),
+        fetch(`${url}/rest/v1/locations?select=id,name,code&is_active=eq.true&order=name.asc`, {
+          headers: authHeaders(key),
+          cache: "no-store",
+        }),
+        fetch(`${url}/rest/v1/brands?select=id,name,location_id&is_active=eq.true&order=name.asc`, {
+          headers: authHeaders(key),
+          cache: "no-store",
+        }),
       ]);
       if (!locationRes.ok) throw new Error(await locationRes.text());
       if (!brandRes.ok) throw new Error(await brandRes.text());
@@ -103,32 +131,48 @@ export default function MarketplacePage() {
   );
 
   async function upload(slot: SlotKey) {
-    const file = files[slot];
+    const selectedFiles = files[slot] || [];
     if (!locationId || !brandId) return setMessage("Select location and brand first.");
-    if (!file) return setMessage(`Choose the ${SLOT_CONFIG[slot].title} file first.`);
+    if (!selectedFiles.length) return setMessage(`Choose at least one ${SLOT_CONFIG[slot].title} file.`);
 
     setBusySlot(slot);
     setMessage("");
     setResult(null);
+
+    let completed = 0;
+    const failed: string[] = [];
+    let latestResult: UploadResult | null = null;
+
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("locationId", locationId);
-      formData.append("brandId", brandId);
-      formData.append("uploadSlot", slot);
+      for (const file of selectedFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("locationId", locationId);
+        formData.append("brandId", brandId);
+        formData.append("uploadSlot", slot);
 
-      const response = await fetch("/api/marketplace/upload", {
-        method: "POST",
-        body: formData,
-      });
-      const data = (await response.json()) as UploadResult;
-      if (!response.ok || !data.success) throw new Error(data.message || "Unable to process report.");
+        const response = await fetch("/api/marketplace/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = (await response.json()) as UploadResult;
 
-      setResult(data);
-      setMessage(`${SLOT_CONFIG[slot].title} analysed and saved successfully.`);
-      setFiles((current) => ({ ...current, [slot]: undefined }));
+        if (!response.ok || !data.success) {
+          failed.push(`${file.name}: ${data.message || "Upload failed"}`);
+          continue;
+        }
+
+        completed += 1;
+        latestResult = data;
+      }
+
+      if (latestResult) setResult(latestResult);
+      if (completed) setFiles((current) => ({ ...current, [slot]: [] }));
+
+      const successText = `${completed} report${completed === 1 ? "" : "s"} analysed and saved.`;
+      setMessage(failed.length ? `${successText} ${failed.length} failed: ${failed.join(" | ")}` : successText);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to process report.");
+      setMessage(error instanceof Error ? error.message : "Unable to process reports.");
     } finally {
       setBusySlot(null);
     }
@@ -141,8 +185,8 @@ export default function MarketplacePage() {
           <p className="text-sm font-black uppercase tracking-[.2em] text-emerald-400">Takshvi Restaurant OS AI</p>
           <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h1 className="text-3xl font-black">Marketplace Intelligence</h1>
-              <p className="mt-2 text-sm text-slate-300">Upload Zomato, Swiggy and online order reports separately for correct analysis.</p>
+              <h1 className="text-3xl font-black">Marketplace Report Center</h1>
+              <p className="mt-2 text-sm text-slate-300">Upload multiple Petpooja, Zomato and Swiggy reports for combined analysis.</p>
             </div>
             <div className="flex gap-2">
               <Link href="/dashboard/ceo" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">CEO Dashboard</Link>
@@ -164,38 +208,54 @@ export default function MarketplacePage() {
           <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{visibleBrands.length}</b> matching brands</div>
         </section>
 
-        <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {(Object.keys(SLOT_CONFIG) as SlotKey[]).map((slot) => {
-            const selected = files[slot];
-            const config = SLOT_CONFIG[slot];
+            const selectedFiles = files[slot] || [];
+            const slotConfig = SLOT_CONFIG[slot];
             return (
               <article key={slot} className="rounded-3xl bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-black">{config.title}</h2>
-                <p className="mt-1 min-h-10 text-sm text-slate-500">{config.note}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-black">{slotConfig.title}</h2>
+                    <p className="mt-1 min-h-10 text-sm text-slate-500">{slotConfig.note}</p>
+                  </div>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black tracking-wide text-slate-600">{slotConfig.badge}</span>
+                </div>
+
                 <label className="mt-4 block rounded-2xl border-2 border-dashed border-slate-300 p-5 text-center hover:border-emerald-500">
-                  <span className="block text-sm font-black">Choose file</span>
+                  <span className="block text-sm font-black">Choose one or multiple files</span>
                   <span className="mt-1 block text-xs text-slate-500">XLSX, XLS or CSV</span>
                   <input
                     type="file"
-                    accept={config.accept}
+                    multiple
+                    accept=".xlsx,.xls,.csv"
                     className="mt-4 block w-full text-xs"
                     onChange={(event) => {
-                      const selectedFile = event.target.files?.[0];
-                      setFiles((current) => ({ ...current, [slot]: selectedFile }));
+                      const selected = Array.from(event.target.files || []);
+                      setFiles((current) => ({ ...current, [slot]: selected }));
                       setMessage("");
                     }}
                   />
                 </label>
-                <div className="mt-3 min-h-14 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-                  {selected ? <><b>{selected.name}</b><br />{(selected.size / 1024 / 1024).toFixed(2)} MB</> : "No file selected"}
+
+                <div className="mt-3 min-h-20 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                  {selectedFiles.length ? (
+                    <>
+                      <b>{selectedFiles.length} file{selectedFiles.length === 1 ? "" : "s"} selected</b>
+                      <div className="mt-2 max-h-20 space-y-1 overflow-auto">
+                        {selectedFiles.map((file) => <p key={`${file.name}-${file.lastModified}`} className="truncate">• {file.name}</p>)}
+                      </div>
+                    </>
+                  ) : "No files selected"}
                 </div>
+
                 <button
                   type="button"
                   onClick={() => void upload(slot)}
-                  disabled={busySlot !== null || !selected}
+                  disabled={busySlot !== null || !selectedFiles.length}
                   className="mt-3 h-11 w-full rounded-xl bg-slate-950 font-black text-white disabled:opacity-50"
                 >
-                  {busySlot === slot ? "Processing..." : "Upload & Analyse"}
+                  {busySlot === slot ? "Processing reports..." : `Upload & Analyse (${selectedFiles.length})`}
                 </button>
               </article>
             );
@@ -205,7 +265,7 @@ export default function MarketplacePage() {
         {message ? <p className="rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900">{message}</p> : null}
 
         <section className="rounded-3xl bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-black">Latest detected report</h2>
+          <h2 className="text-xl font-black">Latest processed report</h2>
           {result?.summary ? (
             <div className="mt-5 space-y-5">
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
@@ -225,7 +285,7 @@ export default function MarketplacePage() {
               </div>
             </div>
           ) : (
-            <p className="mt-4 rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">Upload any report above to generate the analysis.</p>
+            <p className="mt-4 rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">Upload reports above to generate the analysis.</p>
           )}
         </section>
       </div>
