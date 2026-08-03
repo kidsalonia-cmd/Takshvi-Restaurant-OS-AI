@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 
 type Row = Record<string, unknown>;
 type Channel = "zomato" | "swiggy" | "offline";
+
 type OutletSummary = {
   outlet: string;
   platform: string;
@@ -22,7 +23,6 @@ const aliases = {
   restaurant: ["restaurant name", "restaurant", "outlet name", "store name", "restaurant id and name", "entity name"],
   virtualBrand: ["virtual brand name", "virtual_brand_name", "virtual brand"],
   area: ["area", "order area", "source area"],
-  source: ["order source", "source", "platform", "channel", "order type", "service type", "delivery partner", "aggregator", "sub order type", "sub_order_type"],
   status: ["status", "order status"],
   sales: ["my amount", "my_amount", "total", "net order value", "final total", "total sales", "gross sales", "order value", "net sales", "subtotal", "bill subtotal", "customer paid", "customer payable", "gross order value", "total order value", "food value", "item total", "total amount"],
   payout: ["payout", "net payout", "order level payout", "settlement amount", "amount paid", "net amount payable", "net payable", "amount payable", "final payout", "bank transfer amount"],
@@ -55,13 +55,20 @@ function num(value: unknown) {
 
 function cell(row: Row, names: string[]) {
   const wanted = names.map(normalize);
-  const exact = Object.keys(row).find((key) => wanted.includes(normalize(key)));
-  if (exact) return row[exact];
+  for (const name of wanted) {
+    const exact = Object.keys(row).find((key) => normalize(key) === name);
+    if (exact) return row[exact];
+  }
   const fuzzy = Object.keys(row).find((key) => {
-    const nk = normalize(key);
-    return nk.length >= 4 && wanted.some((name) => name.length >= 4 && nk.includes(name));
+    const normalizedKey = normalize(key);
+    return normalizedKey.length >= 4 && wanted.some((name) => name.length >= 4 && normalizedKey.includes(name));
   });
   return fuzzy ? row[fuzzy] : undefined;
+}
+
+function exactCell(row: Row, name: string) {
+  const key = Object.keys(row).find((column) => normalize(column) === normalize(name));
+  return key ? row[key] : undefined;
 }
 
 function dateValue(input: unknown): string | null {
@@ -84,7 +91,10 @@ function dateValue(input: unknown): string | null {
 
 function headerScore(values: unknown[]) {
   const joined = values.map(normalize).join(" | ");
-  return ["invoice no", "order id", "order date", "virtual brand", "area", "my amount", "total", "payout", "commission", "discount", "item name", "quantity", "channel"].reduce((score, token) => score + (joined.includes(token) ? 1 : 0), 0);
+  return ["invoice no", "order id", "order date", "virtual brand", "area", "total", "payout", "commission", "discount", "item name", "quantity"].reduce(
+    (score, token) => score + (joined.includes(token) ? 1 : 0),
+    0,
+  );
 }
 
 function uniqueHeaders(values: unknown[]) {
@@ -100,6 +110,7 @@ function uniqueHeaders(values: unknown[]) {
 function sheetRows(sheet: XLSX.WorkSheet): Row[] {
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null, raw: true });
   if (!matrix.length) return [];
+
   let bestIndex = 0;
   let bestScore = -1;
   for (let index = 0; index < Math.min(matrix.length, 50); index += 1) {
@@ -109,6 +120,7 @@ function sheetRows(sheet: XLSX.WorkSheet): Row[] {
       bestIndex = index;
     }
   }
+
   const headers = uniqueHeaders(matrix[bestIndex] || []);
   return matrix
     .slice(bestIndex + 1)
@@ -126,8 +138,6 @@ function classifyChannel(row: Row, slot: string): Channel {
   if (slot === "zomato_payout") return "zomato";
   if (slot === "swiggy_payout") return "swiggy";
 
-  // Petpooja online classification must come only from the Area column.
-  // This prevents Dine In / Takeaway / generic Parcel rows from entering online analysis.
   const area = normalize(cell(row, aliases.area));
   if (area.includes("zomato")) return "zomato";
   if (area.includes("swiggy")) return "swiggy";
@@ -135,11 +145,9 @@ function classifyChannel(row: Row, slot: string): Channel {
 }
 
 function outletName(row: Row) {
-  // Petpooja virtual_brand_name is the authoritative online outlet name.
   const virtualBrand = String(cell(row, aliases.virtualBrand) ?? "").trim();
   if (virtualBrand) return virtualBrand;
 
-  // Fallback only when virtual_brand_name is blank: derive outlet from Area.
   const area = String(cell(row, aliases.area) ?? "").trim();
   if (area) return area.replace(/^(zomato|swiggy)[_\s-]*/i, "").trim();
 
@@ -166,7 +174,10 @@ function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedS
   let excludedOfflineRows = 0;
   const orderFacts: Row[] = [];
   const itemFacts: Row[] = [];
-  const grouped = new Map<string, { outlet: string; platform: string; orderIds: Set<string>; rows: number; sales: number; payout: number; discount: number; commission: number }>();
+  const grouped = new Map<
+    string,
+    { outlet: string; platform: string; orderIds: Set<string>; rows: number; sales: number; payout: number; discount: number; commission: number }
+  >();
 
   for (const row of rows) {
     const channel = classifyChannel(row, slot);
@@ -190,7 +201,9 @@ function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedS
 
     const orderIdValue = cell(row, aliases.orderId);
     const orderId = orderIdValue !== undefined && String(orderIdValue).trim() ? String(orderIdValue).trim() : null;
-    const sales = num(cell(row, aliases.sales));
+
+    // Petpooja Total Online Sales must use only the exact Excel column named "total".
+    const sales = slot.startsWith("petpooja") ? num(exactCell(row, "total")) : num(cell(row, aliases.sales));
     const payout = num(cell(row, aliases.payout));
     const discount = num(cell(row, aliases.discount));
     const commission = num(cell(row, aliases.commission));
@@ -214,8 +227,7 @@ function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedS
     };
 
     group.rows += 1;
-    if (orderId) group.orderIds.add(orderId);
-    else group.orderIds.add(`row-${group.rows}`);
+    group.orderIds.add(orderId || `row-${group.rows}`);
     group.sales += sales;
     group.payout += payout;
     group.discount += discount;
@@ -296,7 +308,7 @@ function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedS
     itemFacts,
     breakdown,
     summary: {
-      scope: "online_only_area_mapped",
+      scope: "online_only_area_mapped_total_column",
       rows: orderFacts.length,
       sourceRows: rows.length,
       excludedOfflineRows,
@@ -318,6 +330,7 @@ async function database(path: string, init: RequestInit) {
   const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!baseUrl || !key) throw new Error("Supabase environment variables are missing.");
+
   const response = await fetch(`${baseUrl}/rest/v1/${path}`, {
     ...init,
     headers: {
@@ -328,6 +341,7 @@ async function database(path: string, init: RequestInit) {
     },
     cache: "no-store",
   });
+
   if (!response.ok) throw new Error(await response.text());
   const text = await response.text();
   return text ? JSON.parse(text) : null;
@@ -393,7 +407,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           message: isLocationReport
-            ? "No Zomato or Swiggy rows were found using the Petpooja Area column. Dine-in and non-marketplace rows were excluded."
+            ? "No Zomato or Swiggy rows with a usable Total value were found. Area must identify Zomato/Swiggy and sales must be in the Total column."
             : "No usable marketplace rows were found.",
         },
         { status: 422 },
@@ -467,6 +481,7 @@ export async function DELETE(request: NextRequest) {
       periodEnd?: string;
       clearAllBrands?: boolean;
     };
+
     const locationId = String(body.locationId || "").trim();
     const brandId = String(body.brandId || "").trim();
     const periodStart = String(body.periodStart || "").trim();
@@ -481,6 +496,7 @@ export async function DELETE(request: NextRequest) {
       : brandId
         ? `or=(brand_id.eq.${encodeURIComponent(brandId)},brand_id.is.null)`
         : "brand_id=is.null";
+
     const query = [
       `location_id=eq.${encodeURIComponent(locationId)}`,
       scope,
