@@ -338,19 +338,55 @@ export async function DELETE(request: NextRequest) {
     const brandId = String(body.brandId || "").trim();
     const periodStart = String(body.periodStart || "").trim();
     const periodEnd = String(body.periodEnd || "").trim();
-    if (!locationId || !periodStart || !periodEnd) return NextResponse.json({ success: false, message: "Location and week dates are required." }, { status: 400 });
 
-    const brandFilter = brandId ? `&brand_id=eq.${encodeURIComponent(brandId)}` : "&brand_id=is.null";
-    const query = [`location_id=eq.${encodeURIComponent(locationId)}`, brandFilter.slice(1), `period_start=lte.${encodeURIComponent(periodEnd)}`, `period_end=gte.${encodeURIComponent(periodStart)}`, "select=id"].join("&");
-    const reports = await database(`marketplace_reports?${query}`, { method: "GET" });
-    const ids = Array.isArray(reports) ? reports.map((row: { id?: string }) => row.id).filter((id: unknown): id is string => typeof id === "string" && Boolean(id)) : [];
-    if (!ids.length) return NextResponse.json({ success: true, deleted: 0, message: "No saved database records were found for the selected week and scope." });
+    if (!locationId || !periodStart || !periodEnd) {
+      return NextResponse.json({ success: false, message: "Location and week dates are required." }, { status: 400 });
+    }
+
+    const baseFilters = [
+      `location_id=eq.${encodeURIComponent(locationId)}`,
+      `period_start=lte.${encodeURIComponent(periodEnd)}`,
+      `period_end=gte.${encodeURIComponent(periodStart)}`,
+      "select=id,brand_id,report_type",
+    ];
+
+    const reportQueries = [
+      database(`marketplace_reports?${[...baseFilters.slice(0, 3), "brand_id=is.null", baseFilters[3]].join("&")}`, { method: "GET" }),
+      ...(brandId
+        ? [database(`marketplace_reports?${[...baseFilters.slice(0, 3), `brand_id=eq.${encodeURIComponent(brandId)}`, baseFilters[3]].join("&")}`, { method: "GET" })]
+        : []),
+    ];
+
+    const reportGroups = await Promise.all(reportQueries);
+    const ids = [...new Set(
+      reportGroups
+        .flatMap((group) => Array.isArray(group) ? group : [])
+        .map((row: { id?: string }) => row.id)
+        .filter((id: unknown): id is string => typeof id === "string" && Boolean(id)),
+    )];
+
+    if (!ids.length) {
+      return NextResponse.json({ success: true, deleted: 0, message: "No saved database records were found for the selected location, brand and week." });
+    }
 
     const encodedIds = ids.map((id) => `"${id.replaceAll('"', "")}"`).join(",");
-    await database(`marketplace_order_facts?report_id=in.(${encodedIds})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await database(`marketplace_item_facts?report_id=in.(${encodedIds})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await database(`marketplace_reports?id=in.(${encodedIds})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    return NextResponse.json({ success: true, deleted: ids.length, message: `${ids.length} saved report${ids.length === 1 ? "" : "s"} and linked online analysis data cleared successfully.` });
+    const factFilter = `report_id=in.(${encodedIds})`;
+    const reportFilter = `id=in.(${encodedIds})`;
+
+    await database(`marketplace_order_facts?${factFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await database(`marketplace_item_facts?${factFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await database(`marketplace_reports?${reportFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+
+    const verification = await database(`marketplace_reports?${reportFilter}&select=id`, { method: "GET" });
+    if (Array.isArray(verification) && verification.length) {
+      throw new Error("Some report records could not be deleted. Please retry after deployment.");
+    }
+
+    return NextResponse.json({
+      success: true,
+      deleted: ids.length,
+      message: `${ids.length} saved report${ids.length === 1 ? "" : "s"}, including location-level Petpooja and selected brand reports, cleared successfully.`,
+    });
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to clear data." }, { status: 500 });
   }
