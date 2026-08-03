@@ -519,10 +519,7 @@ export default function MarketplacePage() {
           </label>
 
           <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm">
-            <b>
-              {completed}/{rows.length}
-            </b>{" "}
-            reports complete
+            <b>{completed}/{rows.length}</b> reports complete
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
               <div className="h-full bg-emerald-500" style={{ width: `${progress}%` }} />
             </div>
