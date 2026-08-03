@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/patch-petpooja-total.yml
+      - .github/patch-petpooja-total.trigger
 
 permissions:
   contents: write
@@ -33,13 +34,15 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
 
-      - name: Remove one-time workflow
-        run: rm .github/workflows/patch-petpooja-total.yml
+      - name: Remove one-time files
+        run: |
+          rm .github/workflows/patch-petpooja-total.yml
+          rm -f .github/patch-petpooja-total.trigger
 
       - name: Commit patch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/app/api/marketplace/upload/route.ts .github/workflows/patch-petpooja-total.yml
+          git add src/app/api/marketplace/upload/route.ts .github/workflows/patch-petpooja-total.yml .github/patch-petpooja-total.trigger
           git commit -m "Use Petpooja Total column for online sales"
           git push
