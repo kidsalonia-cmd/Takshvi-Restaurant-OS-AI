@@ -147,16 +147,58 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json() as { locationId?: string; brandId?: string; periodStart?: string; periodEnd?: string };
-    if (!body.locationId || !body.periodStart || !body.periodEnd) return NextResponse.json({ success: false, message: "Location and week dates are required." }, { status: 400 });
-    const brandFilter = body.brandId ? `&brand_id=eq.${encodeURIComponent(body.brandId)}` : "&brand_id=is.null";
-    const reports = await database(`marketplace_reports?location_id=eq.${encodeURIComponent(body.locationId)}${brandFilter}&period_start=eq.${body.periodStart}&period_end=eq.${body.periodEnd}&select=id`, { method: "GET" });
-    const ids = Array.isArray(reports) ? reports.map((row) => row.id).filter(Boolean) : [];
-    if (!ids.length) return NextResponse.json({ success: true, deleted: 0, message: "No saved data found for this week." });
-    const filter = `report_id=in.(${ids.join(",")})`;
-    await database(`marketplace_order_facts?${filter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await database(`marketplace_item_facts?${filter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await database(`marketplace_reports?id=in.(${ids.join(",")})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    return NextResponse.json({ success: true, deleted: ids.length, message: `${ids.length} saved report(s) cleared for the selected week.` });
+    const locationId = String(body.locationId || "").trim();
+    const brandId = String(body.brandId || "").trim();
+    const periodStart = String(body.periodStart || "").trim();
+    const periodEnd = String(body.periodEnd || "").trim();
+
+    if (!locationId || !periodStart || !periodEnd) {
+      return NextResponse.json({ success: false, message: "Location and week dates are required." }, { status: 400 });
+    }
+
+    const brandFilter = brandId
+      ? `&brand_id=eq.${encodeURIComponent(brandId)}`
+      : "&brand_id=is.null";
+
+    // Delete every report that overlaps the selected week. This also clears older
+    // records whose saved period was detected from the file rather than matching
+    // the selected dates exactly.
+    const query = [
+      `location_id=eq.${encodeURIComponent(locationId)}`,
+      brandFilter.slice(1),
+      `period_start=lte.${encodeURIComponent(periodEnd)}`,
+      `period_end=gte.${encodeURIComponent(periodStart)}`,
+      "select=id,original_file_name,period_start,period_end",
+    ].join("&");
+
+    const reports = await database(`marketplace_reports?${query}`, { method: "GET" });
+    const ids = Array.isArray(reports)
+      ? reports.map((row: { id?: string }) => row.id).filter((id: unknown): id is string => typeof id === "string" && Boolean(id))
+      : [];
+
+    if (!ids.length) {
+      return NextResponse.json({ success: true, deleted: 0, message: "No saved database records were found for the selected week and scope." });
+    }
+
+    const encodedIds = ids.map((id) => `"${id.replaceAll('"', '')}"`).join(",");
+    const factFilter = `report_id=in.(${encodedIds})`;
+    const reportFilter = `id=in.(${encodedIds})`;
+
+    await database(`marketplace_order_facts?${factFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await database(`marketplace_item_facts?${factFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await database(`marketplace_reports?${reportFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+
+    // Verify the parent records are actually gone before reporting success.
+    const remaining = await database(`marketplace_reports?${reportFilter}&select=id`, { method: "GET" });
+    if (Array.isArray(remaining) && remaining.length) {
+      throw new Error("Some report records could not be deleted. Please check Supabase delete permissions.");
+    }
+
+    return NextResponse.json({
+      success: true,
+      deleted: ids.length,
+      message: `${ids.length} saved report${ids.length === 1 ? "" : "s"} and linked analysis data cleared successfully.`,
+    });
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to clear data." }, { status: 500 });
   }
