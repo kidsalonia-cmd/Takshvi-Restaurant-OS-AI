@@ -1,0 +1,45 @@
+name: Patch Petpooja Total Sales
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/patch-petpooja-total.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Use exact Total column for Petpooja sales
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/marketplace/upload/route.ts')
+          text = path.read_text(encoding='utf-8')
+          old = '    const sales = num(cell(row, aliases.sales));'
+          new = '''    const sales = slot.startsWith("petpooja")
+      ? num(Object.entries(row).find(([key]) => normalize(key) === "total")?.[1])
+      : num(cell(row, aliases.sales));'''
+          if old not in text:
+              raise SystemExit('Target sales line not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Remove one-time workflow
+        run: rm .github/workflows/patch-petpooja-total.yml
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/marketplace/upload/route.ts .github/workflows/patch-petpooja-total.yml
+          git commit -m "Use Petpooja Total column for online sales"
+          git push
