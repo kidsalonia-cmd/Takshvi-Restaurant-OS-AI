@@ -4,15 +4,27 @@ import * as XLSX from "xlsx";
 
 type Row = Record<string, unknown>;
 type Channel = "zomato" | "swiggy" | "online_other" | "offline";
+type OutletSummary = {
+  outlet: string;
+  platform: string;
+  orders: number;
+  sales: number;
+  payout: number;
+  discount: number;
+  commission: number;
+  aov: number;
+  payoutRatio: number;
+};
 
 const aliases = {
-  orderId: ["order id", "zomato order id", "swiggy order id", "invoice no", "invoice number", "order number", "order_id"],
+  orderId: ["order id", "zomato order id", "swiggy order id", "invoice no", "invoice number", "order number", "order_id", "invoice_no"],
   date: ["order date", "date", "bill date", "order time", "order placed at", "transaction date", "settlement date"],
   restaurant: ["restaurant name", "restaurant", "outlet name", "store name", "restaurant id and name", "entity name"],
-  brand: ["brand name", "brand"],
-  source: ["order source", "source", "area", "platform", "channel", "order type", "service type", "delivery partner", "aggregator"],
+  virtualBrand: ["virtual brand name", "virtual_brand_name", "virtual brand", "brand name", "brand"],
+  area: ["area", "order area", "source area"],
+  source: ["order source", "source", "area", "platform", "channel", "order type", "service type", "delivery partner", "aggregator", "sub order type", "sub_order_type"],
   status: ["status", "order status"],
-  sales: ["net order value", "final total", "total sales", "gross sales", "order value", "net sales", "subtotal", "bill subtotal", "customer paid", "customer payable", "gross order value", "total order value", "food value", "item total", "total amount"],
+  sales: ["my amount", "my_amount", "total", "net order value", "final total", "total sales", "gross sales", "order value", "net sales", "subtotal", "bill subtotal", "customer paid", "customer payable", "gross order value", "total order value", "food value", "item total", "total amount"],
   payout: ["payout", "net payout", "order level payout", "settlement amount", "amount paid", "net amount payable", "net payable", "amount payable", "final payout", "bank transfer amount"],
   discount: ["discount", "discount amount", "restaurant funded discount", "restaurant discount", "merchant discount", "promo discount", "total discount"],
   commission: ["commission", "commission amount", "service fee", "base service fee", "platform fee", "commission value", "total commission"],
@@ -24,15 +36,8 @@ const aliases = {
 };
 
 function normalize(value: unknown) {
-  return String(value ?? "")
-    .replace(/\r?\n/g, " ")
-    .replace(/[_-]+/g, " ")
-    .replace(/[^a-zA-Z0-9% ]/g, " ")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+  return String(value ?? "").replace(/\r?\n/g, " ").replace(/[_-]+/g, " ").replace(/[^a-zA-Z0-9% ]/g, " ").trim().toLowerCase().replace(/\s+/g, " ");
 }
-
 function num(value: unknown) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   const text = String(value ?? "").trim();
@@ -40,20 +45,16 @@ function num(value: unknown) {
   const parsed = Number(text.replace(/[₹,%()\s,]/g, ""));
   return Number.isFinite(parsed) ? (negative ? -parsed : parsed) : 0;
 }
-
 function cell(row: Row, names: string[]) {
-  const normalizedNames = names.map(normalize);
-  const exact = Object.keys(row).find((key) => normalizedNames.includes(normalize(key)));
+  const wanted = names.map(normalize);
+  const exact = Object.keys(row).find((key) => wanted.includes(normalize(key)));
   if (exact) return row[exact];
-
   const fuzzy = Object.keys(row).find((key) => {
-    const normalizedKey = normalize(key);
-    if (normalizedKey.length < 4) return false;
-    return normalizedNames.some((name) => name.length >= 4 && normalizedKey.includes(name));
+    const nk = normalize(key);
+    return nk.length >= 4 && wanted.some((name) => name.length >= 4 && nk.includes(name));
   });
   return fuzzy ? row[fuzzy] : undefined;
 }
-
 function dateValue(input: unknown): string | null {
   if (!input) return null;
   if (input instanceof Date && !Number.isNaN(input.getTime())) return input.toISOString();
@@ -71,13 +72,10 @@ function dateValue(input: unknown): string | null {
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
-
 function headerScore(values: unknown[]) {
   const joined = values.map(normalize).join(" | ");
-  const tokens = ["order id", "order date", "restaurant", "settlement", "payout", "commission", "discount", "net order value", "amount payable", "item name", "quantity", "gross sales", "order source", "channel"];
-  return tokens.reduce((score, token) => score + (joined.includes(token) ? 1 : 0), 0);
+  return ["invoice no", "order id", "order date", "virtual brand", "area", "my amount", "total", "payout", "commission", "discount", "item name", "quantity", "channel"].reduce((score, token) => score + (joined.includes(token) ? 1 : 0), 0);
 }
-
 function uniqueHeaders(values: unknown[]) {
   const seen = new Map<string, number>();
   return values.map((value, index) => {
@@ -87,62 +85,46 @@ function uniqueHeaders(values: unknown[]) {
     return count ? `${base} ${count + 1}` : base;
   });
 }
-
 function sheetRows(sheet: XLSX.WorkSheet): Row[] {
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null, raw: true });
   if (!matrix.length) return [];
   let bestIndex = 0;
   let bestScore = -1;
-  for (let index = 0; index < Math.min(matrix.length, 40); index += 1) {
+  for (let index = 0; index < Math.min(matrix.length, 50); index += 1) {
     const score = headerScore(matrix[index] || []);
-    if (score > bestScore) {
-      bestScore = score;
-      bestIndex = index;
-    }
+    if (score > bestScore) { bestScore = score; bestIndex = index; }
   }
   const headers = uniqueHeaders(matrix[bestIndex] || []);
-  return matrix.slice(bestIndex + 1)
-    .filter((values) => values.some((value) => value !== null && String(value).trim() !== ""))
-    .map((values) => {
-      const row: Row = {};
-      headers.forEach((header, index) => { row[header] = values[index] ?? null; });
-      return row;
-    });
+  return matrix.slice(bestIndex + 1).filter((values) => values.some((value) => value !== null && String(value).trim() !== "")).map((values) => {
+    const row: Row = {};
+    headers.forEach((header, index) => { row[header] = values[index] ?? null; });
+    return row;
+  });
 }
-
 function classifyChannel(row: Row, slot: string): Channel {
   if (slot === "zomato_payout") return "zomato";
   if (slot === "swiggy_payout") return "swiggy";
-
-  const source = normalize(cell(row, aliases.source));
-  const fullRow = normalize(JSON.stringify(row));
-  const text = `${source} ${fullRow}`;
-
+  const text = normalize(`${cell(row, aliases.source)} ${cell(row, aliases.area)} ${JSON.stringify(row)}`);
   if (text.includes("zomato")) return "zomato";
   if (text.includes("swiggy")) return "swiggy";
-  if (source.includes("online") || source.includes("aggregator") || source.includes("delivery")) return "online_other";
+  if (text.includes("delivery") || text.includes("online") || text.includes("aggregator") || text.includes("parcel")) return "online_other";
   return "offline";
 }
-
-function detectMarketplace(slot: string) {
-  if (slot === "zomato_payout") return "zomato";
-  if (slot === "swiggy_payout") return "swiggy";
-  return "petpooja";
+function outletName(row: Row) {
+  const virtualBrand = String(cell(row, aliases.virtualBrand) ?? "").trim();
+  if (virtualBrand) return virtualBrand;
+  const area = String(cell(row, aliases.area) ?? "").trim();
+  if (area) return area.replace(/^(zomato|swiggy)[_\s-]*/i, "").trim();
+  return String(cell(row, aliases.restaurant) ?? "Unknown Outlet").trim() || "Unknown Outlet";
 }
-
 function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedStart: string, selectedEnd: string) {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const rows = workbook.SheetNames.flatMap((name) => sheetRows(workbook.Sheets[name]));
   const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-  const marketplace = detectMarketplace(slot);
+  const marketplace = slot === "zomato_payout" ? "zomato" : slot === "swiggy_payout" ? "swiggy" : "petpooja";
   const reportText = normalize(`${fileName} ${columns.join(" ")} ${JSON.stringify(rows.slice(0, 30))}`);
-
-  if (slot === "zomato_payout" && !reportText.includes("zomato")) {
-    throw new Error("This does not appear to be a Zomato payout report. Upload the Zomato settlement file in this row.");
-  }
-  if (slot === "swiggy_payout" && !reportText.includes("swiggy")) {
-    throw new Error("This does not appear to be a Swiggy payout report. Upload the Swiggy settlement file in this row.");
-  }
+  if (slot === "zomato_payout" && !reportText.includes("zomato")) throw new Error("This does not appear to be a Zomato payout report.");
+  if (slot === "swiggy_payout" && !reportText.includes("swiggy")) throw new Error("This does not appear to be a Swiggy payout report.");
 
   let restaurantName: string | null = null;
   let detectedStart: string | null = null;
@@ -150,24 +132,19 @@ function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedS
   let excludedOfflineRows = 0;
   const orderFacts: Row[] = [];
   const itemFacts: Row[] = [];
-  const channelBreakdown: Record<string, { orders: number; sales: number; payout: number }> = {};
+  const grouped = new Map<string, { outlet: string; platform: string; orderIds: Set<string>; rows: number; sales: number; payout: number; discount: number; commission: number }>();
 
   for (const row of rows) {
     const channel = classifyChannel(row, slot);
-    if (slot.startsWith("petpooja") && channel === "offline") {
-      excludedOfflineRows += 1;
-      continue;
-    }
-
-    const restaurant = cell(row, aliases.restaurant);
-    if (!restaurantName && restaurant) restaurantName = String(restaurant).trim();
+    if (slot.startsWith("petpooja") && channel === "offline") { excludedOfflineRows += 1; continue; }
+    const outlet = slot.startsWith("petpooja") ? outletName(row) : String(cell(row, aliases.restaurant) ?? outletName(row)).trim();
+    if (!restaurantName && outlet) restaurantName = outlet;
     const orderDate = dateValue(cell(row, aliases.date));
     if (orderDate) {
       const day = orderDate.slice(0, 10);
       if (!detectedStart || day < detectedStart) detectedStart = day;
       if (!detectedEnd || day > detectedEnd) detectedEnd = day;
     }
-
     const orderIdValue = cell(row, aliases.orderId);
     const orderId = orderIdValue !== undefined && String(orderIdValue).trim() ? String(orderIdValue).trim() : null;
     const sales = num(cell(row, aliases.sales));
@@ -177,127 +154,52 @@ function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedS
     const tax = num(cell(row, aliases.tax));
     const packaging = num(cell(row, aliases.packaging));
     const itemName = cell(row, aliases.item);
-
     if (!orderId && !orderDate && !sales && !payout && !itemName) continue;
-
     const platform = channel === "online_other" ? "online_other" : channel;
-    if (!channelBreakdown[platform]) channelBreakdown[platform] = { orders: 0, sales: 0, payout: 0 };
-    channelBreakdown[platform].orders += 1;
-    channelBreakdown[platform].sales += sales;
-    channelBreakdown[platform].payout += payout;
-
-    if (sales || payout || orderId || orderDate) {
-      orderFacts.push({
-        marketplace: platform,
-        external_order_id: orderId,
-        invoice_number: orderId,
-        order_date: orderDate,
-        restaurant_name: restaurant ? String(restaurant) : restaurantName,
-        brand_name: String(cell(row, aliases.brand) ?? "") || null,
-        order_source: platform,
-        order_status: String(cell(row, aliases.status) ?? "") || null,
-        gross_sales: sales,
-        discount_amount: discount,
-        tax_amount: tax,
-        packaging_amount: packaging,
-        commission_amount: commission,
-        other_deductions: 0,
-        net_order_value: sales,
-        payout_amount: payout,
-        raw_row: row,
-      });
-    }
-
-    if (itemName) {
-      itemFacts.push({
-        marketplace: platform,
-        external_order_id: orderId,
-        invoice_number: orderId,
-        order_date: orderDate,
-        restaurant_name: restaurant ? String(restaurant) : restaurantName,
-        brand_name: String(cell(row, aliases.brand) ?? "") || null,
-        category_name: String(cell(row, aliases.category) ?? "") || null,
-        item_name: String(itemName),
-        quantity: num(cell(row, aliases.quantity)) || 1,
-        gross_sales: sales,
-        discount_amount: discount,
-        tax_amount: tax,
-        final_total: sales,
-        raw_row: row,
-      });
-    }
+    const key = `${normalize(outlet)}|${platform}`;
+    const group = grouped.get(key) || { outlet, platform, orderIds: new Set<string>(), rows: 0, sales: 0, payout: 0, discount: 0, commission: 0 };
+    group.rows += 1;
+    if (orderId) group.orderIds.add(orderId); else group.orderIds.add(`row-${group.rows}`);
+    group.sales += sales; group.payout += payout; group.discount += discount; group.commission += commission;
+    grouped.set(key, group);
+    if (sales || payout || orderId || orderDate) orderFacts.push({ marketplace: platform, external_order_id: orderId, invoice_number: orderId, order_date: orderDate, restaurant_name: outlet, brand_name: outlet, order_source: platform, order_status: String(cell(row, aliases.status) ?? "") || null, gross_sales: sales, discount_amount: discount, tax_amount: tax, packaging_amount: packaging, commission_amount: commission, other_deductions: 0, net_order_value: sales, payout_amount: payout, raw_row: row });
+    if (itemName) itemFacts.push({ marketplace: platform, external_order_id: orderId, invoice_number: orderId, order_date: orderDate, restaurant_name: outlet, brand_name: outlet, category_name: String(cell(row, aliases.category) ?? "") || null, item_name: String(itemName), quantity: num(cell(row, aliases.quantity)) || 1, gross_sales: sales, discount_amount: discount, tax_amount: tax, final_total: sales, raw_row: row });
   }
 
-  const sales = orderFacts.reduce((sum, row) => sum + num(row.gross_sales), 0);
-  const payout = orderFacts.reduce((sum, row) => sum + num(row.payout_amount), 0);
-  const uniqueOrders = new Set(orderFacts.map((row) => String(row.external_order_id ?? "")).filter(Boolean));
-  const orders = uniqueOrders.size || orderFacts.length;
-
-  return {
-    marketplace,
-    reportType: slot,
-    restaurantName,
-    periodStart: selectedStart || detectedStart,
-    periodEnd: selectedEnd || detectedEnd,
-    columns,
-    orderFacts,
-    itemFacts,
-    summary: {
-      scope: "online_only",
-      rows: orderFacts.length,
-      sourceRows: rows.length,
-      excludedOfflineRows,
-      orders,
-      sales,
-      payout,
-      discount: orderFacts.reduce((sum, row) => sum + num(row.discount_amount), 0),
-      commission: orderFacts.reduce((sum, row) => sum + num(row.commission_amount), 0),
-      tax: orderFacts.reduce((sum, row) => sum + num(row.tax_amount), 0),
-      packaging: orderFacts.reduce((sum, row) => sum + num(row.packaging_amount), 0),
-      aov: orders ? sales / orders : 0,
-      payoutRatio: sales ? (payout / sales) * 100 : 0,
-      channelBreakdown,
-      uploadSlot: slot,
-    },
-  };
+  const breakdown: OutletSummary[] = Array.from(grouped.values()).map((group) => {
+    const orders = group.orderIds.size;
+    return { outlet: group.outlet, platform: group.platform, orders, sales: group.sales, payout: group.payout, discount: group.discount, commission: group.commission, aov: orders ? group.sales / orders : 0, payoutRatio: group.sales ? (group.payout / group.sales) * 100 : 0 };
+  }).sort((a, b) => b.sales - a.sales);
+  const sales = breakdown.reduce((sum, row) => sum + row.sales, 0);
+  const payout = breakdown.reduce((sum, row) => sum + row.payout, 0);
+  const orders = breakdown.reduce((sum, row) => sum + row.orders, 0);
+  return { marketplace, reportType: slot, restaurantName, periodStart: selectedStart || detectedStart, periodEnd: selectedEnd || detectedEnd, columns, orderFacts, itemFacts, breakdown, summary: { scope: "online_only", rows: orderFacts.length, sourceRows: rows.length, excludedOfflineRows, outlets: breakdown.length, orders, sales, payout, discount: breakdown.reduce((s, r) => s + r.discount, 0), commission: breakdown.reduce((s, r) => s + r.commission, 0), aov: orders ? sales / orders : 0, payoutRatio: sales ? (payout / sales) * 100 : 0, breakdown, uploadSlot: slot } };
 }
-
 async function database(path: string, init: RequestInit) {
   const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!baseUrl || !key) throw new Error("Supabase environment variables are missing.");
-  const response = await fetch(`${baseUrl}/rest/v1/${path}`, {
-    ...init,
-    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(init.headers || {}) },
-    cache: "no-store",
-  });
+  const response = await fetch(`${baseUrl}/rest/v1/${path}`, { ...init, headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(init.headers || {}) }, cache: "no-store" });
   if (!response.ok) throw new Error(await response.text());
   const text = await response.text();
   return text ? JSON.parse(text) : null;
 }
-
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) return NextResponse.json({ success: false, message: "File is required." }, { status: 400 });
-
     const extension = file.name.split(".").pop()?.toLowerCase();
     if (!extension || !["xlsx", "xls", "csv"].includes(extension)) return NextResponse.json({ success: false, message: "Only XLSX, XLS and CSV files are supported." }, { status: 400 });
-
     const locationId = String(formData.get("locationId") || "").trim();
     const brandId = String(formData.get("brandId") || "").trim();
     const uploadSlot = String(formData.get("uploadSlot") || "").trim();
     const periodStart = String(formData.get("periodStart") || "").trim();
     const periodEnd = String(formData.get("periodEnd") || "").trim();
-
     if (!locationId) return NextResponse.json({ success: false, message: "Select a location before saving." }, { status: 400 });
-    if (!periodStart || !periodEnd) return NextResponse.json({ success: false, message: "Select week start and week end before saving." }, { status: 400 });
-    if (periodEnd < periodStart) return NextResponse.json({ success: false, message: "Week end cannot be before week start." }, { status: 400 });
-
+    if (!periodStart || !periodEnd || periodEnd < periodStart) return NextResponse.json({ success: false, message: "Select a valid week." }, { status: 400 });
     const isLocationReport = uploadSlot.startsWith("petpooja");
     if (!isLocationReport && !brandId) return NextResponse.json({ success: false, message: "Select a brand before uploading Zomato or Swiggy reports." }, { status: 400 });
-
     const buffer = Buffer.from(await file.arrayBuffer());
     const fileHash = createHash("sha256").update(buffer).digest("hex");
     const effectiveBrandId = isLocationReport ? "" : brandId;
@@ -305,32 +207,18 @@ export async function POST(request: NextRequest) {
     const duplicateQuery = [`file_hash=eq.${fileHash}`, `location_id=eq.${encodeURIComponent(locationId)}`, brandFilter, `report_type=eq.${encodeURIComponent(uploadSlot)}`, `period_start=eq.${encodeURIComponent(periodStart)}`, `period_end=eq.${encodeURIComponent(periodEnd)}`, "select=id", "limit=1"].join("&");
     const duplicate = await database(`marketplace_reports?${duplicateQuery}`, { method: "GET" });
     if (Array.isArray(duplicate) && duplicate.length) return NextResponse.json({ success: false, duplicate: true, message: "This report is already saved for the selected scope and week." }, { status: 409 });
-
     const parsed = parseWorkbook(buffer, file.name, uploadSlot, periodStart, periodEnd);
-    if (!parsed.summary.rows) {
-      const message = uploadSlot.startsWith("petpooja")
-        ? "No Zomato, Swiggy or other online orders were detected. Dine-in and offline rows are intentionally excluded."
-        : "No usable marketplace rows were found in this report.";
-      return NextResponse.json({ success: false, message }, { status: 422 });
-    }
-
-    const created = await database("marketplace_reports", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ marketplace: parsed.marketplace, report_type: parsed.reportType, restaurant_name: parsed.restaurantName, location_id: locationId, brand_id: effectiveBrandId || null, period_start: parsed.periodStart, period_end: parsed.periodEnd, original_file_name: file.name, file_size_bytes: file.size, file_hash: fileHash, processing_status: "processed", detected_columns: parsed.columns, summary: parsed.summary }),
-    });
-
+    if (!parsed.summary.rows) return NextResponse.json({ success: false, message: isLocationReport ? "No online Zomato or Swiggy orders were detected in the Petpooja report." : "No usable marketplace rows were found." }, { status: 422 });
+    const created = await database("marketplace_reports", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ marketplace: parsed.marketplace, report_type: parsed.reportType, restaurant_name: parsed.restaurantName, location_id: locationId, brand_id: effectiveBrandId || null, period_start: parsed.periodStart, period_end: parsed.periodEnd, original_file_name: file.name, file_size_bytes: file.size, file_hash: fileHash, processing_status: "processed", detected_columns: parsed.columns, summary: parsed.summary }) });
     const reportId = created?.[0]?.id;
     if (!reportId) throw new Error("Unable to create report record.");
     if (parsed.orderFacts.length) await database("marketplace_order_facts", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(parsed.orderFacts.map((row) => ({ ...row, report_id: reportId }))) });
     if (parsed.itemFacts.length) await database("marketplace_item_facts", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(parsed.itemFacts.map((row) => ({ ...row, report_id: reportId }))) });
-
-    return NextResponse.json({ success: true, reportId, marketplace: parsed.marketplace, reportType: parsed.reportType, restaurantName: parsed.restaurantName, periodStart: parsed.periodStart, periodEnd: parsed.periodEnd, summary: parsed.summary });
+    return NextResponse.json({ success: true, reportId, marketplace: parsed.marketplace, reportType: parsed.reportType, restaurantName: parsed.restaurantName, periodStart: parsed.periodStart, periodEnd: parsed.periodEnd, summary: parsed.summary, breakdown: parsed.breakdown });
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to process report." }, { status: 500 });
   }
 }
-
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json() as { locationId?: string; brandId?: string; periodStart?: string; periodEnd?: string };
@@ -338,55 +226,17 @@ export async function DELETE(request: NextRequest) {
     const brandId = String(body.brandId || "").trim();
     const periodStart = String(body.periodStart || "").trim();
     const periodEnd = String(body.periodEnd || "").trim();
-
-    if (!locationId || !periodStart || !periodEnd) {
-      return NextResponse.json({ success: false, message: "Location and week dates are required." }, { status: 400 });
-    }
-
-    const baseFilters = [
-      `location_id=eq.${encodeURIComponent(locationId)}`,
-      `period_start=lte.${encodeURIComponent(periodEnd)}`,
-      `period_end=gte.${encodeURIComponent(periodStart)}`,
-      "select=id,brand_id,report_type",
-    ];
-
-    const reportQueries = [
-      database(`marketplace_reports?${[...baseFilters.slice(0, 3), "brand_id=is.null", baseFilters[3]].join("&")}`, { method: "GET" }),
-      ...(brandId
-        ? [database(`marketplace_reports?${[...baseFilters.slice(0, 3), `brand_id=eq.${encodeURIComponent(brandId)}`, baseFilters[3]].join("&")}`, { method: "GET" })]
-        : []),
-    ];
-
-    const reportGroups = await Promise.all(reportQueries);
-    const ids = [...new Set(
-      reportGroups
-        .flatMap((group) => Array.isArray(group) ? group : [])
-        .map((row: { id?: string }) => row.id)
-        .filter((id: unknown): id is string => typeof id === "string" && Boolean(id)),
-    )];
-
-    if (!ids.length) {
-      return NextResponse.json({ success: true, deleted: 0, message: "No saved database records were found for the selected location, brand and week." });
-    }
-
+    if (!locationId || !periodStart || !periodEnd) return NextResponse.json({ success: false, message: "Location and week dates are required." }, { status: 400 });
+    const scope = brandId ? `or=(brand_id.eq.${encodeURIComponent(brandId)},brand_id.is.null)` : "brand_id=is.null";
+    const query = [`location_id=eq.${encodeURIComponent(locationId)}`, scope, `period_start=lte.${encodeURIComponent(periodEnd)}`, `period_end=gte.${encodeURIComponent(periodStart)}`, "select=id"].join("&");
+    const reports = await database(`marketplace_reports?${query}`, { method: "GET" });
+    const ids = Array.isArray(reports) ? reports.map((row: { id?: string }) => row.id).filter((id: unknown): id is string => typeof id === "string" && Boolean(id)) : [];
+    if (!ids.length) return NextResponse.json({ success: true, deleted: 0, message: "No saved records found for this week." });
     const encodedIds = ids.map((id) => `"${id.replaceAll('"', "")}"`).join(",");
-    const factFilter = `report_id=in.(${encodedIds})`;
-    const reportFilter = `id=in.(${encodedIds})`;
-
-    await database(`marketplace_order_facts?${factFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await database(`marketplace_item_facts?${factFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-    await database(`marketplace_reports?${reportFilter}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
-
-    const verification = await database(`marketplace_reports?${reportFilter}&select=id`, { method: "GET" });
-    if (Array.isArray(verification) && verification.length) {
-      throw new Error("Some report records could not be deleted. Please retry after deployment.");
-    }
-
-    return NextResponse.json({
-      success: true,
-      deleted: ids.length,
-      message: `${ids.length} saved report${ids.length === 1 ? "" : "s"}, including location-level Petpooja and selected brand reports, cleared successfully.`,
-    });
+    await database(`marketplace_order_facts?report_id=in.(${encodedIds})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await database(`marketplace_item_facts?report_id=in.(${encodedIds})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    await database(`marketplace_reports?id=in.(${encodedIds})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+    return NextResponse.json({ success: true, deleted: ids.length, message: `${ids.length} report${ids.length === 1 ? "" : "s"} cleared successfully.` });
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to clear data." }, { status: 500 });
   }
