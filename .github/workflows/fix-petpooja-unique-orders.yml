@@ -1,0 +1,127 @@
+name: Fix Petpooja Unique Orders
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-petpooja-unique-orders.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Count unique Petpooja invoices and total once per invoice
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/app/api/marketplace/upload/route.ts')
+          text = path.read_text(encoding='utf-8')
+
+          old_group = '''  const grouped = new Map<
+    string,
+    { outlet: string; platform: string; orderIds: Set<string>; rows: number; sales: number; payout: number; discount: number; commission: number }
+  >();'''
+          new_group = '''  const grouped = new Map<
+    string,
+    { outlet: string; platform: string; orderIds: Set<string>; rows: number; sales: number; payout: number; discount: number; commission: number }
+  >();
+  const processedPetpoojaInvoices = new Set<string>();'''
+          if old_group not in text:
+              raise SystemExit('Grouped map target not found')
+          text = text.replace(old_group, new_group, 1)
+
+          old_block = '''    if (!orderId && !orderDate && !sales && !payout && !itemName) continue;
+
+    const platform = channel;
+    const key = `${normalize(outlet)}|${platform}`;
+    const group = grouped.get(key) || {
+      outlet,
+      platform,
+      orderIds: new Set<string>(),
+      rows: 0,
+      sales: 0,
+      payout: 0,
+      discount: 0,
+      commission: 0,
+    };
+
+    group.rows += 1;
+    group.orderIds.add(orderId || `row-${group.rows}`);
+    group.sales += sales;
+    group.payout += payout;
+    group.discount += discount;
+    group.commission += commission;
+    grouped.set(key, group);
+
+    if (sales || payout || orderId || orderDate) {
+      orderFacts.push({'''
+
+          new_block = '''    if (!orderId && !orderDate && !sales && !payout && !itemName) continue;
+
+    const platform = channel;
+    const key = `${normalize(outlet)}|${platform}`;
+    const isPetpooja = slot.startsWith("petpooja");
+
+    // Petpooja order count and sales are invoice-level, not item-row-level.
+    // Rows without invoice_no are ignored so item lines cannot inflate order count.
+    if (isPetpooja && !orderId) continue;
+
+    const invoiceKey = orderId ? `${key}|${normalize(orderId)}` : "";
+    const isFirstInvoiceRow = !isPetpooja || !processedPetpoojaInvoices.has(invoiceKey);
+    if (isPetpooja && isFirstInvoiceRow) processedPetpoojaInvoices.add(invoiceKey);
+
+    const group = grouped.get(key) || {
+      outlet,
+      platform,
+      orderIds: new Set<string>(),
+      rows: 0,
+      sales: 0,
+      payout: 0,
+      discount: 0,
+      commission: 0,
+    };
+
+    group.rows += 1;
+    if (orderId) group.orderIds.add(orderId);
+    if (isFirstInvoiceRow) {
+      group.sales += sales;
+      group.payout += payout;
+      group.discount += discount;
+      group.commission += commission;
+    }
+    grouped.set(key, group);
+
+    if ((!isPetpooja || isFirstInvoiceRow) && (sales || payout || orderId || orderDate)) {
+      orderFacts.push({'''
+
+          if old_block not in text:
+              raise SystemExit('Order aggregation target not found')
+          text = text.replace(old_block, new_block, 1)
+
+          old_scope = 'scope: "online_only_area_mapped_total_column",'
+          new_scope = 'scope: "online_only_unique_invoice_total_column",'
+          if old_scope not in text:
+              raise SystemExit('Summary scope target not found')
+          text = text.replace(old_scope, new_scope, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Remove one-time workflow
+        run: rm .github/workflows/fix-petpooja-unique-orders.yml
+
+      - name: Commit and push fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/api/marketplace/upload/route.ts .github/workflows/fix-petpooja-unique-orders.yml
+          git commit -m "Count unique Petpooja invoices and total once per order"
+          git push
