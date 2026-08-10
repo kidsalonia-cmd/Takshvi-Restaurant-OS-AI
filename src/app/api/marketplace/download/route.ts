@@ -22,6 +22,9 @@ function contentType(fileName: string) {
   if (extension === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (extension === "xls") return "application/vnd.ms-excel";
   if (extension === "csv") return "text/csv; charset=utf-8";
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "png") return "image/png";
   return "application/octet-stream";
 }
 
@@ -41,7 +44,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "The original workbook was not stored for this older upload. Re-upload the file to enable downloads.",
+          message: "The original source file was not stored for this older upload. Re-upload the file to enable downloads.",
         },
         { status: 404 },
       );
