@@ -16,6 +16,7 @@ const navigation = [
   ["CRM", "/crm", "◎"],
   ["Finance", "/reports/daily", "₹"],
   ["Marketplace", "/marketplace", "◉"],
+  ["Source Files", "/marketplace/files", "⇩"],
   ["Outlet Analysis", "/marketplace/outlets", "◌"],
   ["Item Suggestions", "/marketplace/outlets/suggestions", "✦"],
   ["Marketplace Integrations", "/integrations/marketplaces", "↔"],
