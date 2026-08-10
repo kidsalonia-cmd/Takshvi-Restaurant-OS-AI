@@ -57,13 +57,14 @@ export async function saveMarketplaceSourceFile(reportId: string, fileName: stri
   await ensureBucket();
   const { baseUrl, serviceKey } = config();
   const path = sourceObjectPath(reportId, fileName);
+  const body = new Uint8Array(buffer);
   const response = await fetch(`${baseUrl}/storage/v1/object/${BUCKET}/${path.split("/").map(encodeURIComponent).join("/")}`, {
     method: "POST",
     headers: headers(serviceKey, {
       "Content-Type": contentType || "application/octet-stream",
       "x-upsert": "true",
     }),
-    body: buffer,
+    body,
   });
   if (!response.ok) throw new Error(await response.text());
   return path;
@@ -77,7 +78,7 @@ export async function getMarketplaceSourceFile(reportId: string, fileName: strin
     cache: "no-store",
   });
   if (!response.ok) return null;
-  return Buffer.from(await response.arrayBuffer());
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 export async function deleteMarketplaceSourceFiles(files: { id: string; original_file_name?: string | null }[]) {
