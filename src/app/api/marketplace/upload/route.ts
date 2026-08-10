@@ -189,8 +189,15 @@ function parseWorkbook(buffer: Buffer, fileName: string, slot: string, selectedS
 
     const orderIdValue = cell(row, aliases.orderId);
     const orderId = orderIdValue !== undefined && String(orderIdValue).trim() ? String(orderIdValue).trim() : null;
-    const sales = isPetpooja ? num(exactCell(row, "total")) : num(cell(row, aliases.sales));
-    const payout = num(cell(row, aliases.payout));
+    const isZomatoPayout = slot === "zomato_payout";
+    const sales = isPetpooja
+      ? num(exactCell(row, "total"))
+      : isZomatoPayout
+        ? num(exactCell(row, "(1) Subtotal (items total)"))
+        : num(cell(row, aliases.sales));
+    const payout = isZomatoPayout
+      ? num(exactCell(row, "(36) Unsettled Amount"))
+      : num(cell(row, aliases.payout));
     const discount = num(cell(row, aliases.discount));
     const commission = num(cell(row, aliases.commission));
     const tax = num(cell(row, aliases.tax));
