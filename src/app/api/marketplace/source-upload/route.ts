@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     if (!reportId) throw new Error("Unable to create report record.");
 
     try {
-      await saveMarketplaceSourceFile(reportId, file.name, buffer, file.type);
+      await saveMarketplaceSourceFile(reportId, file.name, buffer, "application/octet-stream");
     } catch (error) {
       await database(`marketplace_reports?id=eq.${encodeURIComponent(reportId)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
       throw error;
