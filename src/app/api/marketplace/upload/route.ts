@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { deleteMarketplaceSourceFiles, saveMarketplaceSourceFile } from "@/lib/marketplaceStorage";
 
 type Row = Record<string, unknown>;
 type Channel = "zomato" | "swiggy" | "offline";
@@ -418,6 +419,15 @@ export async function POST(request: NextRequest) {
     const reportId = created?.[0]?.id;
     if (!reportId) throw new Error("Unable to create report record.");
 
+    let sourceStored = false;
+    let sourceStorageMessage = "";
+    try {
+      await saveMarketplaceSourceFile(reportId, file.name, buffer, file.type);
+      sourceStored = true;
+    } catch (storageError) {
+      sourceStorageMessage = storageError instanceof Error ? storageError.message : "Unable to store original source file.";
+    }
+
     if (parsed.orderFacts.length) {
       await database("marketplace_order_facts", {
         method: "POST",
@@ -437,6 +447,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       reportId,
+      sourceStored,
+      sourceStorageMessage: sourceStorageMessage || undefined,
       marketplace: parsed.marketplace,
       reportType: parsed.reportType,
       restaurantName: parsed.restaurantName,
@@ -480,17 +492,20 @@ export async function DELETE(request: NextRequest) {
       scope,
       `period_start=lte.${encodeURIComponent(periodEnd)}`,
       `period_end=gte.${encodeURIComponent(periodStart)}`,
-      "select=id",
+      "select=id,original_file_name",
     ]
       .filter(Boolean)
       .join("&");
 
     const reports = await database(`marketplace_reports?${query}`, { method: "GET" });
-    const ids = Array.isArray(reports)
-      ? reports.map((row: { id?: string }) => row.id).filter((id: unknown): id is string => typeof id === "string" && Boolean(id))
+    const reportRows = Array.isArray(reports)
+      ? reports.filter((row: { id?: string }) => typeof row.id === "string" && Boolean(row.id))
       : [];
+    const ids = reportRows.map((row: { id: string }) => row.id);
 
     if (!ids.length) return NextResponse.json({ success: true, deleted: 0, message: "No saved records found for this week." });
+
+    await deleteMarketplaceSourceFiles(reportRows);
 
     const encodedIds = ids.map((id) => `"${id.replaceAll('"', "")}"`).join(",");
     await database(`marketplace_order_facts?report_id=in.(${encodedIds})`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
