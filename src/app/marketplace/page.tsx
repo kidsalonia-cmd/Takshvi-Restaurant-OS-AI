@@ -12,6 +12,7 @@ type Summary = OutletBreakdown & { rows: number; outlets?: number; breakdown?: O
 type UploadResult = { success: boolean; message?: string; marketplace?: string; restaurantName?: string | null; periodStart?: string; periodEnd?: string; summary?: Summary; breakdown?: OutletBreakdown[] };
 type UploadRow = { id: string; locationId: string; locationName: string; brandId: string; brandName: string; platform: Platform; slot: "petpooja_orders" | "petpooja_items" | "zomato_payout" | "swiggy_payout"; level: "Location" | "Brand" };
 type AnalysisRow = { key: string; locationName: string; restaurant: string; platform: string; periodStart: string; periodEnd: string; sales: number; orders: number; payout: number; discount: number; commission: number; aov: number; payoutRatio: number; pendingPayout: number; deductionRate: number; status: string };
+type SavedReport = { id: string; marketplace: string; report_type: UploadRow["slot"]; restaurant_name: string | null; location_id: string | null; brand_id: string | null; period_start: string | null; period_end: string | null; summary: Summary | null };
 
 const PLATFORM_BY_BRAND: Record<string, Platform> = {
   wafflelicious: "Zomato", "takshvi cafe delight": "Zomato", bowlzaa: "Zomato",
@@ -41,6 +42,11 @@ function currentWeek() {
   const iso = (date: Date) => date.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
   return { start: iso(monday), end: iso(sunday) };
 }
+function shiftIsoDate(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
 function validFiles(files: FileList | File[]) { return Array.from(files).filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name)); }
 
 export default function MarketplacePage() {
@@ -57,6 +63,7 @@ export default function MarketplacePage() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [loadingSaved, setLoadingSaved] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => { void loadMasters(); }, []);
@@ -88,6 +95,10 @@ export default function MarketplacePage() {
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(statuses)); }, [storageKey, statuses]);
   useEffect(() => { localStorage.setItem(resultStorageKey, JSON.stringify(results)); }, [resultStorageKey, results]);
 
+  useEffect(() => {
+    if (locations.length && rows.length) void loadSavedWeek();
+  }, [periodStart, periodEnd, locationFilter, locations.length, brands.length, rows.length]);
+
   async function loadMasters() {
     try {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -103,6 +114,67 @@ export default function MarketplacePage() {
       setLocations(await locationResponse.json());
       setBrands(await brandResponse.json());
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load setup data."); }
+  }
+
+  async function loadSavedWeek() {
+    setLoadingSaved(true);
+    try {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!url || !key) throw new Error("Supabase environment variables are missing.");
+      const headers = { apikey: key, Authorization: `Bearer ${key}` };
+      const response = await fetch(
+        `${url}/rest/v1/marketplace_reports?select=id,marketplace,report_type,restaurant_name,location_id,brand_id,period_start,period_end,summary&period_start=eq.${encodeURIComponent(periodStart)}&period_end=eq.${encodeURIComponent(periodEnd)}&order=created_at.desc`,
+        { headers, cache: "no-store" },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const saved = (await response.json()) as SavedReport[];
+      const visibleLocationIds = new Set(visibleLocations.map((location) => location.id));
+      const restoredResults: Record<string, UploadResult> = {};
+      const restoredStatuses: Record<string, Status> = {};
+
+      for (const report of saved) {
+        if (!report.location_id || !visibleLocationIds.has(report.location_id)) continue;
+        let rowId = "";
+        if (report.report_type === "petpooja_orders") rowId = `petpooja-orders:${report.location_id}`;
+        else if (report.report_type === "petpooja_items") rowId = `petpooja-items:${report.location_id}`;
+        else if (report.report_type === "zomato_payout" && report.brand_id) rowId = `zomato:${report.brand_id}`;
+        else if (report.report_type === "swiggy_payout" && report.brand_id) rowId = `swiggy:${report.brand_id}`;
+        if (!rowId || restoredResults[rowId]) continue;
+        restoredStatuses[rowId] = "uploaded";
+        restoredResults[rowId] = {
+          success: true,
+          marketplace: report.marketplace,
+          restaurantName: report.restaurant_name,
+          periodStart: report.period_start || periodStart,
+          periodEnd: report.period_end || periodEnd,
+          summary: report.summary || undefined,
+          breakdown: report.summary?.breakdown || [],
+        };
+      }
+
+      setStatuses((current) => ({ ...current, ...restoredStatuses }));
+      setResults((current) => ({ ...current, ...restoredResults }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to restore saved week data.");
+    } finally {
+      setLoadingSaved(false);
+    }
+  }
+
+  function moveWeek(offset: number) {
+    setFiles({});
+    setPeriodStart((value) => shiftIsoDate(value, offset * 7));
+    setPeriodEnd((value) => shiftIsoDate(value, offset * 7));
+    setMessage("");
+  }
+
+  function showCurrentWeek() {
+    const current = currentWeek();
+    setFiles({});
+    setPeriodStart(current.start);
+    setPeriodEnd(current.end);
+    setMessage("");
   }
 
   function attach(rowId: string, selected: File[]) {
@@ -219,18 +291,26 @@ export default function MarketplacePage() {
         <header className="rounded-3xl bg-slate-950 p-7 text-white">
           <p className="text-sm font-black uppercase tracking-[.2em] text-emerald-400">Takshvi Restaurant OS AI</p>
           <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div><h1 className="text-3xl font-black">Weekly Marketplace Upload Matrix</h1><p className="mt-2 text-sm text-slate-300">All locations and outlet details load by default.</p></div>
+            <div><h1 className="text-3xl font-black">Weekly Marketplace Upload Matrix</h1><p className="mt-2 text-sm text-slate-300">Saved weeks restore automatically from the database.</p></div>
             <div className="flex gap-2"><Link href="/dashboard/ceo" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">CEO Dashboard</Link><Link href="/integrations/marketplaces" className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950">Connections</Link></div>
           </div>
         </header>
 
-        <section className="grid gap-3 rounded-3xl bg-white p-5 shadow-sm md:grid-cols-2 xl:grid-cols-6">
-          <select value={locationFilter} onChange={(event) => { setLocationFilter(event.target.value); setFiles({}); }} className="h-12 rounded-xl border px-3"><option value="all">All Locations</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select>
-          <label className="text-xs font-bold text-slate-500">Week start<input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm text-slate-950" /></label>
-          <label className="text-xs font-bold text-slate-500">Week end<input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm text-slate-950" /></label>
-          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{completed}/{rows.length}</b> reports complete<div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-emerald-500" style={{ width: `${progress}%` }} /></div></div>
-          <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">{visibleLocations.length} locations · {progress}% complete</div>
-          <button onClick={() => void clearWeek()} disabled={clearing || !locations.length} className="h-12 rounded-xl bg-red-50 px-4 font-black text-red-700 disabled:opacity-50">{clearing ? "Clearing..." : locationFilter === "all" ? "Clear All Locations" : "Clear Location Week"}</button>
+        <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => moveWeek(-1)} className="rounded-xl border px-4 py-2 text-sm font-black">← Previous Week</button>
+            <button onClick={showCurrentWeek} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">Current Week</button>
+            <button onClick={() => moveWeek(1)} className="rounded-xl border px-4 py-2 text-sm font-black">Next Week →</button>
+            <button onClick={() => void loadSavedWeek()} disabled={loadingSaved} className="rounded-xl bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-800 disabled:opacity-50">{loadingSaved ? "Loading saved data..." : "Reload Saved Week"}</button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <select value={locationFilter} onChange={(event) => { setLocationFilter(event.target.value); setFiles({}); }} className="h-12 rounded-xl border px-3"><option value="all">All Locations</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select>
+            <label className="text-xs font-bold text-slate-500">Week start<input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm text-slate-950" /></label>
+            <label className="text-xs font-bold text-slate-500">Week end<input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm text-slate-950" /></label>
+            <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{completed}/{rows.length}</b> reports complete<div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-emerald-500" style={{ width: `${progress}%` }} /></div></div>
+            <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">{visibleLocations.length} locations · {progress}% complete</div>
+            <button onClick={() => void clearWeek()} disabled={clearing || !locations.length} className="h-12 rounded-xl bg-red-50 px-4 font-black text-red-700 disabled:opacity-50">{clearing ? "Clearing..." : locationFilter === "all" ? "Clear All Locations" : "Clear Location Week"}</button>
+          </div>
         </section>
 
         {analysedRows.length ? <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
@@ -243,7 +323,7 @@ export default function MarketplacePage() {
         </section> : null}
 
         <section className="overflow-hidden rounded-3xl bg-white shadow-sm">
-          <div className="border-b p-5"><h2 className="text-xl font-black">Weekly report uploads</h2><p className="mt-1 text-sm text-slate-500">Every location and outlet is visible by default.</p></div>
+          <div className="border-b p-5"><h2 className="text-xl font-black">Weekly report uploads</h2><p className="mt-1 text-sm text-slate-500">Choose any week above. Existing saved reports are restored automatically.</p></div>
           <div className="overflow-x-auto"><table className="w-full min-w-[1550px] text-left text-sm">
             <thead className="bg-slate-950 text-white"><tr>{["Location","Café ID / Brand","Platform","Week Start","Week End","Attach File","Selected File","Status","Action"].map((heading) => <th key={heading} className="p-4 font-black">{heading}</th>)}</tr></thead>
             <tbody>{rows.map((row) => { const file = files[row.id]; const status = statuses[row.id] || "pending"; return <tr key={row.id} className="border-b align-middle">
@@ -264,7 +344,7 @@ export default function MarketplacePage() {
             <thead className="bg-emerald-500"><tr>{["Location","Restaurant","Platform","Sales","Orders","Payout","AOV","Payout %","Pending / Gap","Status","Week"].map((heading) => <th key={heading} className="p-4 font-black">{heading}</th>)}</tr></thead>
             <tbody>{analysedRows.length ? <>{analysedRows.map((row) => <tr key={row.key} className="border-b"><td className="p-4 font-bold">{row.locationName}</td><td className="p-4 font-bold">{row.restaurant}</td><td className="p-4 font-black">{row.platform}</td><td className="p-4">{money(row.sales)}</td><td className="p-4">{row.orders}</td><td className="p-4">{money(row.payout)}</td><td className="p-4">{money(row.aov)}</td><td className="p-4">{row.payoutRatio.toFixed(1)}%</td><td className="p-4">{money(row.pendingPayout)}</td><td className="p-4">{row.status}</td><td className="p-4 whitespace-nowrap">{row.periodStart} to {row.periodEnd}</td></tr>)}
               <tr className="bg-slate-950 text-white"><td className="p-4 font-black" colSpan={3}>TOTAL ONLINE</td><td className="p-4 font-black">{money(totals.sales)}</td><td className="p-4 font-black">{totals.orders}</td><td className="p-4 font-black">{money(totals.payout)}</td><td className="p-4 font-black">{money(totalAov)}</td><td className="p-4 font-black">{totalPayoutPercent.toFixed(1)}%</td><td className="p-4 font-black">{money(totals.pending)}</td><td className="p-4 font-black">Combined</td><td className="p-4 whitespace-nowrap">{periodStart} to {periodEnd}</td></tr>
-            </> : <tr><td colSpan={11} className="p-8 text-center text-slate-500">Upload reports to generate analysis.</td></tr>}</tbody>
+            </> : <tr><td colSpan={11} className="p-8 text-center text-slate-500">No saved reports found for this selected week yet.</td></tr>}</tbody>
           </table></div>
         </section>
 
