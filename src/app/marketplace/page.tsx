@@ -14,17 +14,9 @@ type UploadRow = { id: string; locationId: string; locationName: string; brandId
 type AnalysisRow = { key: string; locationName: string; restaurant: string; platform: string; periodStart: string; periodEnd: string; sales: number; orders: number; payout: number; discount: number; commission: number; aov: number; payoutRatio: number; pendingPayout: number; deductionRate: number; status: string };
 type SavedReport = { id: string; marketplace: string; report_type: UploadRow["slot"]; restaurant_name: string | null; location_id: string | null; brand_id: string | null; period_start: string | null; period_end: string | null; summary: Summary | null };
 
-const PLATFORM_BY_BRAND: Record<string, Platform> = {
-  wafflelicious: "Zomato", "takshvi cafe delight": "Zomato", bowlzaa: "Zomato",
-  "sip and snack cafe": "Zomato", "sip snack cafe": "Zomato", honeyman: "Zomato",
-  "checkmate cheers": "Zomato", "honeyman 49": "Swiggy", "coffee and chill cafe": "Swiggy",
-  "cafe honey delight": "Swiggy", "cafe honeyman cpfv": "Zomato", "cafe honeyman dhunela": "Swiggy",
-};
-
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9 ]/g, " ").toLowerCase().replace(/\s+/g, " ").trim();
 }
-function inferPlatform(name: string): Platform { return PLATFORM_BY_BRAND[normalize(name)] || "Zomato"; }
 function money(value = 0) { return `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`; }
 function platformLabel(value: string) {
   const normalized = normalize(value);
@@ -48,6 +40,11 @@ function shiftIsoDate(value: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 function validFiles(files: FileList | File[]) { return Array.from(files).filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name)); }
+function prettyDate(value: string) {
+  if (!value) return "—";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 export default function MarketplacePage() {
   const week = currentWeek();
@@ -78,10 +75,10 @@ export default function MarketplacePage() {
       { id: `petpooja-orders:${location.id}`, locationId: location.id, locationName: location.name, brandId: "", brandName: "Consolidated Online Sales", platform: "Petpooja", slot: "petpooja_orders", level: "Location" },
       { id: `petpooja-items:${location.id}`, locationId: location.id, locationName: location.name, brandId: "", brandName: "Consolidated Item Sales", platform: "Petpooja", slot: "petpooja_items", level: "Location" },
     ];
-    const brandRows = brands.filter((brand) => brand.location_id === location.id).map((brand) => {
-      const platform = inferPlatform(brand.name);
-      return { id: `${platform.toLowerCase()}:${brand.id}`, locationId: location.id, locationName: location.name, brandId: brand.id, brandName: brand.name, platform, slot: platform === "Swiggy" ? "swiggy_payout" : "zomato_payout", level: "Brand" } as UploadRow;
-    });
+    const brandRows = brands.filter((brand) => brand.location_id === location.id).flatMap((brand) => [
+      { id: `zomato:${brand.id}`, locationId: location.id, locationName: location.name, brandId: brand.id, brandName: brand.name, platform: "Zomato" as Platform, slot: "zomato_payout" as const, level: "Brand" as const },
+      { id: `swiggy:${brand.id}`, locationId: location.id, locationName: location.name, brandId: brand.id, brandName: brand.name, platform: "Swiggy" as Platform, slot: "swiggy_payout" as const, level: "Brand" as const },
+    ]);
     return [...locationRows, ...brandRows];
   }), [visibleLocations, brands]);
 
@@ -132,7 +129,6 @@ export default function MarketplacePage() {
       const visibleLocationIds = new Set(visibleLocations.map((location) => location.id));
       const restoredResults: Record<string, UploadResult> = {};
       const restoredStatuses: Record<string, Status> = {};
-
       for (const report of saved) {
         if (!report.location_id || !visibleLocationIds.has(report.location_id)) continue;
         let rowId = "";
@@ -152,14 +148,11 @@ export default function MarketplacePage() {
           breakdown: report.summary?.breakdown || [],
         };
       }
-
       setStatuses((current) => ({ ...current, ...restoredStatuses }));
       setResults((current) => ({ ...current, ...restoredResults }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to restore saved week data.");
-    } finally {
-      setLoadingSaved(false);
-    }
+    } finally { setLoadingSaved(false); }
   }
 
   function moveWeek(offset: number) {
@@ -168,7 +161,6 @@ export default function MarketplacePage() {
     setPeriodEnd((value) => shiftIsoDate(value, offset * 7));
     setMessage("");
   }
-
   function showCurrentWeek() {
     const current = currentWeek();
     setFiles({});
@@ -176,7 +168,6 @@ export default function MarketplacePage() {
     setPeriodEnd(current.end);
     setMessage("");
   }
-
   function attach(rowId: string, selected: File[]) {
     const accepted = validFiles(selected);
     if (!accepted.length) return setMessage("Only XLSX, XLS and CSV files are supported.");
@@ -185,17 +176,14 @@ export default function MarketplacePage() {
     setMessage("");
   }
   function drop(event: DragEvent<HTMLLabelElement>, rowId: string) {
-    event.preventDefault();
-    setDragging(null);
-    attach(rowId, Array.from(event.dataTransfer.files));
+    event.preventDefault(); setDragging(null); attach(rowId, Array.from(event.dataTransfer.files));
   }
 
   async function upload(row: UploadRow) {
     const file = files[row.id];
     if (!file) return setMessage("Attach a report file first.");
     if (!periodStart || !periodEnd || periodEnd < periodStart) return setMessage("Select a valid week.");
-    setBusy(row.id);
-    setMessage("");
+    setBusy(row.id); setMessage("");
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -235,8 +223,7 @@ export default function MarketplacePage() {
         const data = (await response.json()) as { success: boolean; message?: string };
         if (!response.ok || !data.success) throw new Error(`${location.name}: ${data.message || "Unable to clear week."}`);
       }
-      localStorage.removeItem(storageKey);
-      localStorage.removeItem(resultStorageKey);
+      localStorage.removeItem(storageKey); localStorage.removeItem(resultStorageKey);
       setStatuses({}); setFiles({}); setResults({}); setInputKeys({});
       setMessage(`Week data cleared for ${targets.length} location(s).`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to clear week data."); }
@@ -284,6 +271,7 @@ export default function MarketplacePage() {
   const totals = analysedRows.reduce((acc, row) => ({ sales: acc.sales + row.sales, orders: acc.orders + row.orders, payout: acc.payout + row.payout, pending: acc.pending + row.pendingPayout }), { sales: 0, orders: 0, payout: 0, pending: 0 });
   const totalAov = totals.orders ? totals.sales / totals.orders : 0;
   const totalPayoutPercent = totals.sales ? (totals.payout / totals.sales) * 100 : 0;
+  const isCurrentWeek = periodStart === week.start && periodEnd === week.end;
 
   return (
     <main className="min-h-screen bg-slate-100 p-4 text-slate-950 md:p-7">
@@ -291,41 +279,38 @@ export default function MarketplacePage() {
         <header className="rounded-3xl bg-slate-950 p-7 text-white">
           <p className="text-sm font-black uppercase tracking-[.2em] text-emerald-400">Takshvi Restaurant OS AI</p>
           <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div><h1 className="text-3xl font-black">Weekly Marketplace Upload Matrix</h1><p className="mt-2 text-sm text-slate-300">Saved weeks restore automatically from the database.</p></div>
-            <div className="flex gap-2"><Link href="/dashboard/ceo" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">CEO Dashboard</Link><Link href="/integrations/marketplaces" className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950">Connections</Link></div>
+            <div><h1 className="text-3xl font-black">Weekly Marketplace Upload Matrix</h1><p className="mt-2 text-sm text-slate-300">Petpooja sales plus separate Zomato and Swiggy payout uploads for every brand.</p></div>
+            <div className="flex flex-wrap gap-2"><Link href="/marketplace/files" className="rounded-xl bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-900">Source Files</Link><Link href="/dashboard/ceo" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">CEO Dashboard</Link><Link href="/integrations/marketplaces" className="rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950">Connections</Link></div>
           </div>
         </header>
 
-        <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap gap-2">
+        <section className="space-y-4 rounded-3xl bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => moveWeek(-1)} className="rounded-xl border px-4 py-2 text-sm font-black">← Previous Week</button>
             <button onClick={showCurrentWeek} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white">Current Week</button>
             <button onClick={() => moveWeek(1)} className="rounded-xl border px-4 py-2 text-sm font-black">Next Week →</button>
             <button onClick={() => void loadSavedWeek()} disabled={loadingSaved} className="rounded-xl bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-800 disabled:opacity-50">{loadingSaved ? "Loading saved data..." : "Reload Saved Week"}</button>
+            <div className="ml-0 rounded-xl border-2 border-emerald-300 bg-emerald-50 px-5 py-2 lg:ml-auto">
+              <p className="text-[11px] font-black uppercase tracking-wider text-emerald-700">Data week being considered{isCurrentWeek ? " · Current Week" : ""}</p>
+              <p className="mt-1 text-base font-black text-slate-950">{prettyDate(periodStart)} → {prettyDate(periodEnd)}</p>
+            </div>
           </div>
+
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <select value={locationFilter} onChange={(event) => { setLocationFilter(event.target.value); setFiles({}); }} className="h-12 rounded-xl border px-3"><option value="all">All Locations</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select>
             <label className="text-xs font-bold text-slate-500">Week start<input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm text-slate-950" /></label>
             <label className="text-xs font-bold text-slate-500">Week end<input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm text-slate-950" /></label>
             <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm"><b>{completed}/{rows.length}</b> reports complete<div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-emerald-500" style={{ width: `${progress}%` }} /></div></div>
-            <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">{visibleLocations.length} locations · {progress}% complete</div>
+            <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">{visibleLocations.length} locations · Zomato + Swiggy enabled</div>
             <button onClick={() => void clearWeek()} disabled={clearing || !locations.length} className="h-12 rounded-xl bg-red-50 px-4 font-black text-red-700 disabled:opacity-50">{clearing ? "Clearing..." : locationFilter === "all" ? "Clear All Locations" : "Clear Location Week"}</button>
           </div>
         </section>
 
-        {analysedRows.length ? <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <Metric label="Total Online Sales" value={money(totals.sales)} />
-          <Metric label="Total Orders" value={String(totals.orders)} />
-          <Metric label="Total Payout" value={money(totals.payout)} />
-          <Metric label="Payout %" value={`${totalPayoutPercent.toFixed(1)}%`} />
-          <Metric label="Overall AOV" value={money(totalAov)} />
-          <Metric label="Pending / Gap" value={money(totals.pending)} />
-        </section> : null}
+        {analysedRows.length ? <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6"><Metric label="Total Online Sales" value={money(totals.sales)} /><Metric label="Total Orders" value={String(totals.orders)} /><Metric label="Total Payout" value={money(totals.payout)} /><Metric label="Payout %" value={`${totalPayoutPercent.toFixed(1)}%`} /><Metric label="Overall AOV" value={money(totalAov)} /><Metric label="Pending / Gap" value={money(totals.pending)} /></section> : null}
 
         <section className="overflow-hidden rounded-3xl bg-white shadow-sm">
-          <div className="border-b p-5"><h2 className="text-xl font-black">Weekly report uploads</h2><p className="mt-1 text-sm text-slate-500">Choose any week above. Existing saved reports are restored automatically.</p></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1550px] text-left text-sm">
-            <thead className="bg-slate-950 text-white"><tr>{["Location","Café ID / Brand","Platform","Week Start","Week End","Attach File","Selected File","Status","Action"].map((heading) => <th key={heading} className="p-4 font-black">{heading}</th>)}</tr></thead>
+          <div className="border-b p-5"><h2 className="text-xl font-black">Weekly report uploads</h2><p className="mt-1 text-sm text-slate-500">Each brand now has both a Zomato and a Swiggy payout row. Mark unused platforms as N/A.</p></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1550px] text-left text-sm"><thead className="bg-slate-950 text-white"><tr>{["Location","Café ID / Brand","Platform","Week Start","Week End","Attach File","Selected File","Status","Action"].map((heading) => <th key={heading} className="p-4 font-black">{heading}</th>)}</tr></thead>
             <tbody>{rows.map((row) => { const file = files[row.id]; const status = statuses[row.id] || "pending"; return <tr key={row.id} className="border-b align-middle">
               <td className="p-4 font-bold">{row.locationName}</td><td className="p-4"><p className="font-black">{row.brandName}</p><p className="text-xs text-slate-500">{row.level === "Location" ? "One consolidated upload for location" : "Brand-wise payout report"}</p></td>
               <td className="p-4"><span className={`rounded-full px-3 py-1 text-xs font-black ${row.platform === "Zomato" ? "bg-red-100 text-red-700" : row.platform === "Swiggy" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>{row.platform}</span></td>
@@ -334,17 +319,13 @@ export default function MarketplacePage() {
               <td className="max-w-72 p-4">{file ? <p className="truncate text-xs font-bold">{file.name}</p> : status === "uploaded" ? <span className="text-xs font-bold text-emerald-700">Saved and analysed</span> : <span className="text-xs text-slate-400">No file selected</span>}</td>
               <td className="p-4"><span className={`rounded-full px-3 py-1 text-xs font-black ${status === "uploaded" ? "bg-emerald-100 text-emerald-700" : status === "not_applicable" ? "bg-slate-200 text-slate-600" : "bg-amber-100 text-amber-700"}`}>{status === "uploaded" ? "Analysed" : status === "not_applicable" ? "Not Applicable" : "Pending"}</span></td>
               <td className="p-4"><div className="flex gap-2"><button onClick={() => void upload(row)} disabled={busy !== null || !file} className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white disabled:opacity-40">{busy === row.id ? "Saving..." : "Save & Analyse"}</button><button onClick={() => setStatuses((current) => ({ ...current, [row.id]: "not_applicable" }))} className="rounded-lg border px-3 py-2 text-xs font-bold">N/A</button><button onClick={() => clearRow(row)} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700">Clear Row</button></div></td>
-            </tr>; })}</tbody>
-          </table></div>
+            </tr>; })}</tbody></table></div>
         </section>
 
         <section className="overflow-hidden rounded-3xl bg-white shadow-sm">
-          <div className="border-b p-5"><h2 className="text-xl font-black">Live outlet performance</h2><p className="mt-1 text-sm text-slate-500">“Online - Platform Unmapped” means Petpooja marked the order as online/delivery but did not identify it as Zomato or Swiggy.</p></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1650px] text-left text-sm">
-            <thead className="bg-emerald-500"><tr>{["Location","Restaurant","Platform","Sales","Orders","Payout","AOV","Payout %","Pending / Gap","Status","Week"].map((heading) => <th key={heading} className="p-4 font-black">{heading}</th>)}</tr></thead>
-            <tbody>{analysedRows.length ? <>{analysedRows.map((row) => <tr key={row.key} className="border-b"><td className="p-4 font-bold">{row.locationName}</td><td className="p-4 font-bold">{row.restaurant}</td><td className="p-4 font-black">{row.platform}</td><td className="p-4">{money(row.sales)}</td><td className="p-4">{row.orders}</td><td className="p-4">{money(row.payout)}</td><td className="p-4">{money(row.aov)}</td><td className="p-4">{row.payoutRatio.toFixed(1)}%</td><td className="p-4">{money(row.pendingPayout)}</td><td className="p-4">{row.status}</td><td className="p-4 whitespace-nowrap">{row.periodStart} to {row.periodEnd}</td></tr>)}
-              <tr className="bg-slate-950 text-white"><td className="p-4 font-black" colSpan={3}>TOTAL ONLINE</td><td className="p-4 font-black">{money(totals.sales)}</td><td className="p-4 font-black">{totals.orders}</td><td className="p-4 font-black">{money(totals.payout)}</td><td className="p-4 font-black">{money(totalAov)}</td><td className="p-4 font-black">{totalPayoutPercent.toFixed(1)}%</td><td className="p-4 font-black">{money(totals.pending)}</td><td className="p-4 font-black">Combined</td><td className="p-4 whitespace-nowrap">{periodStart} to {periodEnd}</td></tr>
-            </> : <tr><td colSpan={11} className="p-8 text-center text-slate-500">No saved reports found for this selected week yet.</td></tr>}</tbody>
+          <div className="border-b p-5"><h2 className="text-xl font-black">Live outlet performance</h2><p className="mt-1 text-sm text-slate-500">Showing data for {prettyDate(periodStart)} to {prettyDate(periodEnd)}.</p></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1650px] text-left text-sm"><thead className="bg-emerald-500"><tr>{["Location","Restaurant","Platform","Sales","Orders","Payout","AOV","Payout %","Pending / Gap","Status","Week"].map((heading) => <th key={heading} className="p-4 font-black">{heading}</th>)}</tr></thead>
+            <tbody>{analysedRows.length ? <>{analysedRows.map((row) => <tr key={row.key} className="border-b"><td className="p-4 font-bold">{row.locationName}</td><td className="p-4 font-bold">{row.restaurant}</td><td className="p-4 font-black">{row.platform}</td><td className="p-4">{money(row.sales)}</td><td className="p-4">{row.orders}</td><td className="p-4">{money(row.payout)}</td><td className="p-4">{money(row.aov)}</td><td className="p-4">{row.payoutRatio.toFixed(1)}%</td><td className="p-4">{money(row.pendingPayout)}</td><td className="p-4">{row.status}</td><td className="p-4 whitespace-nowrap">{row.periodStart} to {row.periodEnd}</td></tr>)}<tr className="bg-slate-950 text-white"><td className="p-4 font-black" colSpan={3}>TOTAL ONLINE</td><td className="p-4 font-black">{money(totals.sales)}</td><td className="p-4 font-black">{totals.orders}</td><td className="p-4 font-black">{money(totals.payout)}</td><td className="p-4 font-black">{money(totalAov)}</td><td className="p-4 font-black">{totalPayoutPercent.toFixed(1)}%</td><td className="p-4 font-black">{money(totals.pending)}</td><td className="p-4 font-black">Combined</td><td className="p-4 whitespace-nowrap">{periodStart} to {periodEnd}</td></tr></> : <tr><td colSpan={11} className="p-8 text-center text-slate-500">No saved reports found for this selected week yet.</td></tr>}</tbody>
           </table></div>
         </section>
 
