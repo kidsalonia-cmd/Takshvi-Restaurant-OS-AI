@@ -129,7 +129,7 @@ export default function PosCustomerMemory() {
 
   return (
     <>
-      <div className="fixed bottom-24 right-4 z-[75] flex flex-col items-end gap-2 lg:bottom-5">
+      <div className="pos-customer-tools fixed bottom-5 right-4 z-[75] hidden flex-col items-end gap-2 lg:flex">
         <a
           href="/api/customers/export"
           className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-xl hover:bg-blue-700"
