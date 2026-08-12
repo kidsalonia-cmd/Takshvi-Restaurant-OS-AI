@@ -7,15 +7,7 @@ type Brand = { id: string; name: string; location_id: string };
 type MenuItem = { id: string; name: string; base_price: number; brand_id: string; location_id: string };
 type InventoryItem = { id: string; name: string; unit: string; average_cost: number; location_id: string };
 type IngredientLine = { inventory_item_id: string; quantity: number; wastage_percent: number };
-
-type Recipe = {
-  id: string;
-  location_id: string;
-  brand_id: string;
-  menu_item_id: string;
-  yield_quantity: number;
-  notes: string | null;
-};
+type Recipe = { id: string; location_id: string; brand_id: string; menu_item_id: string; yield_quantity: number; notes: string | null };
 
 function config() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,15 +15,8 @@ function config() {
   if (!url || !key) throw new Error("Supabase environment variables are missing.");
   return { url, key };
 }
-
-function headers(key: string, prefer?: string) {
-  return {
-    apikey: key,
-    Authorization: `Bearer ${key}`,
-    "Content-Type": "application/json",
-    ...(prefer ? { Prefer: prefer } : {}),
-  };
-}
+function headers(key: string, prefer?: string) { return { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(prefer ? { Prefer: prefer } : {}) }; }
+function money(value: number) { return `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`; }
 
 export default function RecipesPage() {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -91,7 +76,10 @@ export default function RecipesPage() {
     if (!item) return total;
     return total + Number(line.quantity || 0) * Number(item.average_cost || 0) * (1 + Number(line.wastage_percent || 0) / 100);
   }, 0) / Math.max(yieldQuantity || 1, 1);
-  const foodCostPercent = selectedMenu?.base_price ? (recipeCost / Number(selectedMenu.base_price)) * 100 : 0;
+  const sellingPrice = Number(selectedMenu?.base_price || 0);
+  const foodCostPercent = sellingPrice ? (recipeCost / sellingPrice) * 100 : 0;
+  const grossMargin = sellingPrice - recipeCost;
+  const grossMarginPercent = sellingPrice ? (grossMargin / sellingPrice) * 100 : 0;
 
   function updateLine(index: number, field: keyof IngredientLine, value: string | number) {
     setLines((current) => current.map((line, i) => i === index ? { ...line, [field]: value } : line));
@@ -121,7 +109,7 @@ export default function RecipesPage() {
         body: JSON.stringify(validLines.map((line) => ({ recipe_id: recipe.id, ...line }))),
       });
       if (!ingredientResponse.ok) throw new Error(await ingredientResponse.text());
-      setMessage("Recipe saved successfully. Food cost is now calculated from inventory cost.");
+      setMessage(`Recipe saved. Item cost ${money(recipeCost)}, gross margin ${money(grossMargin)} (${grossMarginPercent.toFixed(1)}%).`);
       await loadLocationData(locationId);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to save recipe."); }
     finally { setSaving(false); }
@@ -132,8 +120,8 @@ export default function RecipesPage() {
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="rounded-3xl bg-slate-950 p-7 text-white">
           <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-400">Recipe and Food Cost Engine</p>
-          <h1 className="mt-2 text-3xl font-black">Menu recipes</h1>
-          <p className="mt-3 text-sm text-slate-300">Connect every menu item to ingredients so orders can deduct inventory and calculate real food cost.</p>
+          <h1 className="mt-2 text-3xl font-black">Menu recipes & margins</h1>
+          <p className="mt-3 text-sm text-slate-300">Connect menu items to ingredients so POS bills reduce stock and each item shows its live food cost and gross margin.</p>
         </header>
 
         <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -141,21 +129,24 @@ export default function RecipesPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <Select label="Location" value={locationId} onChange={setLocationId} options={locations.map((x) => [x.id, x.name])} />
               <Select label="Brand" value={brandId} onChange={setBrandId} options={brands.map((x) => [x.id, x.name])} />
-              <Select label="Menu item" value={menuItemId} onChange={setMenuItemId} options={filteredMenu.map((x) => [x.id, `${x.name} - ₹${Number(x.base_price).toFixed(0)}`])} />
+              <Select label="Menu item" value={menuItemId} onChange={setMenuItemId} options={filteredMenu.map((x) => [x.id, `${x.name} - ${money(Number(x.base_price))}`])} />
               <label className="block"><span className="mb-2 block text-sm font-bold">Recipe yield</span><input type="number" min="0.001" step="0.001" value={yieldQuantity} onChange={(e) => setYieldQuantity(Number(e.target.value))} className="h-12 w-full rounded-xl border border-slate-200 px-4" /></label>
             </div>
 
             <div className="mt-6 border-t border-slate-200 pt-6">
               <div className="flex items-center justify-between"><h2 className="text-xl font-black">Ingredients</h2><button type="button" onClick={() => setLines([...lines, { inventory_item_id: "", quantity: 0, wastage_percent: 0 }])} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black">+ Add ingredient</button></div>
               <div className="mt-4 space-y-3">
-                {lines.map((line, index) => (
-                  <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-4 md:grid-cols-[1.4fr_0.7fr_0.7fr_auto]">
-                    <select value={line.inventory_item_id} onChange={(e) => updateLine(index, "inventory_item_id", e.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"><option value="">Select ingredient</option>{inventory.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>)}</select>
+                {lines.map((line, index) => {
+                  const selected = inventory.find((item) => item.id === line.inventory_item_id);
+                  const lineCost = selected ? Number(line.quantity || 0) * Number(selected.average_cost || 0) * (1 + Number(line.wastage_percent || 0) / 100) : 0;
+                  return <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-4 md:grid-cols-[1.4fr_0.65fr_0.65fr_0.65fr_auto]">
+                    <select value={line.inventory_item_id} onChange={(e) => updateLine(index, "inventory_item_id", e.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"><option value="">Select ingredient</option>{inventory.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit}) · {money(item.average_cost)}/{item.unit}</option>)}</select>
                     <input type="number" step="0.001" min="0" value={line.quantity} onChange={(e) => updateLine(index, "quantity", Number(e.target.value))} placeholder="Qty" className="h-11 rounded-xl border border-slate-200 px-3" />
                     <input type="number" step="0.1" min="0" value={line.wastage_percent} onChange={(e) => updateLine(index, "wastage_percent", Number(e.target.value))} placeholder="Wastage %" className="h-11 rounded-xl border border-slate-200 px-3" />
+                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-right"><p className="text-[10px] font-bold uppercase text-slate-400">Cost</p><p className="font-black">{money(lineCost)}</p></div>
                     <button type="button" onClick={() => setLines(lines.filter((_, i) => i !== index))} className="h-11 rounded-xl border border-red-100 px-3 font-bold text-red-600">Remove</button>
-                  </div>
-                ))}
+                  </div>;
+                })}
               </div>
             </div>
 
@@ -165,10 +156,16 @@ export default function RecipesPage() {
             {error && <p className="mt-4 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
           </form>
 
-          <div className="space-y-5">
-            <div className="rounded-3xl bg-white p-6 shadow-sm"><p className="text-sm font-bold text-slate-500">Estimated recipe cost</p><p className="mt-2 text-4xl font-black">₹{recipeCost.toFixed(2)}</p><p className="mt-2 text-sm text-slate-500">Per menu-item yield</p></div>
-            <div className="rounded-3xl bg-white p-6 shadow-sm"><p className="text-sm font-bold text-slate-500">Food cost percentage</p><p className={`mt-2 text-4xl font-black ${foodCostPercent > 35 ? "text-red-600" : "text-emerald-600"}`}>{foodCostPercent.toFixed(1)}%</p><p className="mt-2 text-sm text-slate-500">Target generally stays within your chosen profitability policy.</p></div>
-            <div className="rounded-3xl bg-white p-6 shadow-sm"><p className="text-sm font-bold text-emerald-600">Recipes configured</p><p className="mt-2 text-4xl font-black">{recipes.length}</p></div>
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Metric label="Selling price" value={money(sellingPrice)} note="Current menu base price" />
+              <Metric label="Item / recipe cost" value={money(recipeCost)} note="Average ingredient cost incl. wastage" />
+              <Metric label="Food cost %" value={`${foodCostPercent.toFixed(1)}%`} note={foodCostPercent > 35 ? "Review cost or selling price" : "Within a typical food-cost range"} alert={foodCostPercent > 35} />
+              <Metric label="Gross margin" value={money(grossMargin)} note="Selling price minus ingredient cost" alert={grossMargin < 0} />
+              <Metric label="Gross margin %" value={`${grossMarginPercent.toFixed(1)}%`} note="Before labour, rent, platform fees and overhead" alert={sellingPrice > 0 && grossMarginPercent < 60} />
+              <Metric label="Recipes configured" value={String(recipes.length)} note="At selected location" />
+            </div>
+            <div className="rounded-3xl bg-amber-50 p-5 text-sm leading-6 text-amber-950"><b>Margin meaning:</b> this is ingredient gross margin, not final net profit. Labour, rent, packaging, commissions, delivery/platform fees and other operating costs are not included in this margin.</div>
           </div>
         </section>
       </div>
@@ -178,4 +175,7 @@ export default function RecipesPage() {
 
 function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[][] }) {
   return <label className="block"><span className="mb-2 block text-sm font-bold">{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} required className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4"><option value="">Select {label.toLowerCase()}</option>{options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>;
+}
+function Metric({ label, value, note, alert = false }: { label: string; value: string; note: string; alert?: boolean }) {
+  return <div className="rounded-3xl bg-white p-5 shadow-sm"><p className="text-sm font-bold text-slate-500">{label}</p><p className={`mt-2 text-3xl font-black ${alert ? "text-red-600" : "text-emerald-700"}`}>{value}</p><p className="mt-2 text-xs leading-5 text-slate-500">{note}</p></div>;
 }
