@@ -7,294 +7,32 @@ type Location = { id: string; name: string; code: string };
 type Brand = { id: string; name: string; location_id: string };
 type MenuItem = { id: string; name: string; sku: string; base_price: number; packaging_charge: number; tax_rate: number; brand_id: string; location_id: string };
 type CartLine = MenuItem & { quantity: number };
-type Receipt = {
-  orderNumber: string;
-  createdAt: string;
-  companyName: string;
-  locationName: string;
-  brandName: string;
-  customerName: string;
-  customerPhone: string;
-  orderType: string;
-  paymentMethod: string;
-  lines: CartLine[];
-  subtotal: number;
-  packaging: number;
-  tax: number;
-  discount: number;
-  grandTotal: number;
-};
+type Receipt = { orderNumber: string; createdAt: string; companyName: string; locationName: string; brandName: string; customerName: string; customerPhone: string; orderType: string; paymentMethod: string; lines: CartLine[]; subtotal: number; packaging: number; tax: number; discount: number; grandTotal: number };
 
-function config() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Error("Supabase environment variables are missing.");
-  return { url, key };
-}
-
-function headers(key: string, prefer?: string) {
-  return {
-    apikey: key,
-    Authorization: `Bearer ${key}`,
-    "Content-Type": "application/json",
-    ...(prefer ? { Prefer: prefer } : {}),
-  };
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>'"]/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "'": "&#039;",
-    '"': "&quot;",
-  })[character] ?? character);
-}
+function config() { const url = process.env.NEXT_PUBLIC_SUPABASE_URL; const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY; if (!url || !key) throw new Error("Supabase environment variables are missing."); return { url, key }; }
+function headers(key: string, prefer?: string) { return { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(prefer ? { Prefer: prefer } : {}) }; }
+function escapeHtml(value: string) { return value.replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#039;", '"': "&quot;" })[c] ?? c); }
 
 export default function PosPage() {
-  const [company, setCompany] = useState<Company | null>(null);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [locationId, setLocationId] = useState("");
-  const [brandId, setBrandId] = useState("");
-  const [search, setSearch] = useState("");
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [discount, setDiscount] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState("cash");
-  const [orderType, setOrderType] = useState("walk_in");
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
+  const [company, setCompany] = useState<Company | null>(null); const [locations, setLocations] = useState<Location[]>([]); const [brands, setBrands] = useState<Brand[]>([]); const [items, setItems] = useState<MenuItem[]>([]);
+  const [locationId, setLocationId] = useState(""); const [brandId, setBrandId] = useState(""); const [search, setSearch] = useState(""); const [cart, setCart] = useState<CartLine[]>([]);
+  const [customerName, setCustomerName] = useState(""); const [customerPhone, setCustomerPhone] = useState(""); const [discount, setDiscount] = useState(0); const [paymentMethod, setPaymentMethod] = useState("cash"); const [orderType, setOrderType] = useState("walk_in");
+  const [saving, setSaving] = useState(false); const [sendingWhatsApp, setSendingWhatsApp] = useState(false); const [message, setMessage] = useState(""); const [error, setError] = useState(""); const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
 
-  useEffect(() => { void loadFoundation(); }, []);
-  useEffect(() => { if (locationId) void loadBrands(locationId); }, [locationId]);
-  useEffect(() => { if (locationId && brandId) void loadItems(locationId, brandId); }, [locationId, brandId]);
+  useEffect(() => { void loadFoundation(); }, []); useEffect(() => { if (locationId) void loadBrands(locationId); }, [locationId]); useEffect(() => { if (locationId && brandId) void loadItems(locationId, brandId); }, [locationId, brandId]);
+  async function loadFoundation() { try { const { url, key } = config(); const companyRes = await fetch(`${url}/rest/v1/companies?select=id,name&order=created_at.asc&limit=1`, { headers: headers(key), cache: "no-store" }); if (!companyRes.ok) throw new Error(await companyRes.text()); const companies = await companyRes.json() as Company[]; if (!companies[0]) throw new Error("Create company profile first."); setCompany(companies[0]); const r = await fetch(`${url}/rest/v1/locations?company_id=eq.${companies[0].id}&is_active=eq.true&select=id,name,code&order=name.asc`, { headers: headers(key), cache: "no-store" }); if (!r.ok) throw new Error(await r.text()); const rows = await r.json() as Location[]; setLocations(rows); setLocationId(rows[0]?.id ?? ""); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load POS setup."); } }
+  async function loadBrands(id: string) { try { const { url, key } = config(); const r = await fetch(`${url}/rest/v1/brands?location_id=eq.${id}&is_active=eq.true&select=id,name,location_id&order=name.asc`, { headers: headers(key), cache: "no-store" }); if (!r.ok) throw new Error(await r.text()); const rows = await r.json() as Brand[]; setBrands(rows); setBrandId(rows[0]?.id ?? ""); setCart([]); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load brands."); } }
+  async function loadItems(location: string, brand: string) { try { const { url, key } = config(); const r = await fetch(`${url}/rest/v1/menu_items?location_id=eq.${location}&brand_id=eq.${brand}&is_active=eq.true&available_on_pos=eq.true&select=id,name,sku,base_price,packaging_charge,tax_rate,brand_id,location_id&order=name.asc`, { headers: headers(key), cache: "no-store" }); if (!r.ok) throw new Error(await r.text()); setItems(await r.json() as MenuItem[]); setCart([]); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load menu items."); } }
+  function addItem(item: MenuItem) { setCart((c) => { const x = c.find((l) => l.id === item.id); return x ? c.map((l) => l.id === item.id ? { ...l, quantity: l.quantity + 1 } : l) : [...c, { ...item, quantity: 1 }]; }); }
+  function changeQty(id: string, quantity: number) { setCart((c) => quantity <= 0 ? c.filter((l) => l.id !== id) : c.map((l) => l.id === id ? { ...l, quantity } : l)); }
+  const filteredItems = useMemo(() => { const q = search.trim().toLowerCase(); return q ? items.filter((i) => i.name.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q)) : items; }, [items, search]);
+  const totals = useMemo(() => { const subtotal = cart.reduce((s,l)=>s+Number(l.base_price)*l.quantity,0); const packaging=cart.reduce((s,l)=>s+Number(l.packaging_charge)*l.quantity,0); const tax=cart.reduce((s,l)=>s+((Number(l.base_price)+Number(l.packaging_charge))*l.quantity*Number(l.tax_rate))/100,0); return { subtotal, packaging, tax, grandTotal: Math.max(0, subtotal+packaging+tax-Number(discount||0)) }; }, [cart, discount]);
 
-  async function loadFoundation() {
-    try {
-      const { url, key } = config();
-      const companyRes = await fetch(`${url}/rest/v1/companies?select=id,name&order=created_at.asc&limit=1`, { headers: headers(key), cache: "no-store" });
-      if (!companyRes.ok) throw new Error(await companyRes.text());
-      const companies = (await companyRes.json()) as Company[];
-      if (!companies[0]) throw new Error("Create company profile first.");
-      setCompany(companies[0]);
-      const locationRes = await fetch(`${url}/rest/v1/locations?company_id=eq.${companies[0].id}&is_active=eq.true&select=id,name,code&order=name.asc`, { headers: headers(key), cache: "no-store" });
-      if (!locationRes.ok) throw new Error(await locationRes.text());
-      const rows = (await locationRes.json()) as Location[];
-      setLocations(rows);
-      setLocationId(rows[0]?.id ?? "");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load POS setup.");
-    }
-  }
+  function openPrint(receipt: Receipt, mode: "kot" | "bill") { const w=window.open("","_blank","width=420,height=760"); if(!w){setError("Popup blocked. Allow popups to print KOT or bill.");return;} const rows=receipt.lines.map(l=>mode==="kot"?`<tr><td>${escapeHtml(l.name)}</td><td class="right">${l.quantity}</td></tr>`:`<tr><td>${escapeHtml(l.name)}</td><td>${l.quantity}</td><td class="right">₹${Number(l.base_price).toFixed(2)}</td><td class="right">₹${(Number(l.base_price)*l.quantity).toFixed(2)}</td></tr>`).join(""); w.document.write(`<!doctype html><html><head><title>${mode==="kot"?"KOT":"Bill"} ${receipt.orderNumber}</title><style>@page{size:80mm auto;margin:4mm}body{font-family:Arial;width:72mm;margin:auto;font-size:12px}.right{text-align:right}.center{text-align:center}.line{border-top:1px dashed;margin:8px 0}.title{font-size:18px;font-weight:800}table{width:100%;border-collapse:collapse}td,th{padding:5px 2px}.grand{font-size:16px;font-weight:800}@media print{button{display:none}}</style></head><body><div class="center title">${escapeHtml(receipt.brandName)}</div><div class="center">${escapeHtml(receipt.locationName)}</div><div class="center"><b>${mode==="kot"?"KITCHEN ORDER TICKET":"TAX INVOICE / BILL"}</b></div><div class="line"></div><div><b>Order:</b> ${escapeHtml(receipt.orderNumber)}</div><div><b>Date:</b> ${escapeHtml(receipt.createdAt)}</div>${receipt.customerName?`<div><b>Customer:</b> ${escapeHtml(receipt.customerName)}</div>`:""}${receipt.customerPhone?`<div><b>Phone:</b> ${escapeHtml(receipt.customerPhone)}</div>`:""}<div class="line"></div><table><tbody>${rows}</tbody></table>${mode==="bill"?`<div class="line"></div><table><tr><td>Subtotal</td><td class="right">₹${receipt.subtotal.toFixed(2)}</td></tr><tr><td>Packaging</td><td class="right">₹${receipt.packaging.toFixed(2)}</td></tr><tr><td>Tax</td><td class="right">₹${receipt.tax.toFixed(2)}</td></tr><tr><td>Discount</td><td class="right">-₹${receipt.discount.toFixed(2)}</td></tr><tr class="grand"><td>Total</td><td class="right">₹${receipt.grandTotal.toFixed(2)}</td></tr></table><div class="center">Thank you!</div>`:""}<button onclick="window.print()">Print</button><script>window.onload=()=>setTimeout(()=>window.print(),250)</script></body></html>`); w.document.close(); }
 
-  async function loadBrands(id: string) {
-    try {
-      const { url, key } = config();
-      const res = await fetch(`${url}/rest/v1/brands?location_id=eq.${id}&is_active=eq.true&select=id,name,location_id&order=name.asc`, { headers: headers(key), cache: "no-store" });
-      if (!res.ok) throw new Error(await res.text());
-      const rows = (await res.json()) as Brand[];
-      setBrands(rows);
-      setBrandId(rows[0]?.id ?? "");
-      setCart([]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load brands.");
-    }
-  }
+  async function sendWhatsApp(receipt: Receipt) { if(!receipt.customerPhone){setError("Customer phone number is required to send the bill on WhatsApp.");return;} setSendingWhatsApp(true); setError(""); setMessage(""); try { const r=await fetch("/api/whatsapp/bill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({customerPhone:receipt.customerPhone,customerName:receipt.customerName,orderNumber:receipt.orderNumber,brandName:receipt.brandName,locationName:receipt.locationName,createdAt:receipt.createdAt,paymentMethod:receipt.paymentMethod,subtotal:receipt.subtotal,packaging:receipt.packaging,tax:receipt.tax,discount:receipt.discount,grandTotal:receipt.grandTotal,lines:receipt.lines.map(l=>({name:l.name,quantity:l.quantity,unitPrice:Number(l.base_price),amount:Number(l.base_price)*l.quantity}))})}); const data=await r.json(); if(!r.ok||!data.success) throw new Error(data.message||"Unable to send WhatsApp bill."); setMessage(`✓ ${data.message}`); } catch(e){setError(e instanceof Error?e.message:"Unable to send WhatsApp bill.");} finally{setSendingWhatsApp(false);} }
 
-  async function loadItems(location: string, brand: string) {
-    try {
-      const { url, key } = config();
-      const res = await fetch(`${url}/rest/v1/menu_items?location_id=eq.${location}&brand_id=eq.${brand}&is_active=eq.true&available_on_pos=eq.true&select=id,name,sku,base_price,packaging_charge,tax_rate,brand_id,location_id&order=name.asc`, { headers: headers(key), cache: "no-store" });
-      if (!res.ok) throw new Error(await res.text());
-      setItems((await res.json()) as MenuItem[]);
-      setCart([]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load menu items.");
-    }
-  }
+  async function createBill() { if(!company||!locationId||!brandId||!cart.length){setError("Select a location, brand and at least one menu item.");return;} setSaving(true);setError("");setMessage("");try{const {url,key}=config();const orderNumber=`POS-${Date.now().toString().slice(-10)}`;const orderRes=await fetch(`${url}/rest/v1/orders`,{method:"POST",headers:headers(key,"return=representation"),body:JSON.stringify({company_id:company.id,location_id:locationId,brand_id:brandId,order_number:orderNumber,source:orderType,status:"accepted",customer_name:customerName||null,customer_phone:customerPhone||null,subtotal:totals.subtotal,packaging_amount:totals.packaging,discount_amount:Number(discount||0),tax_amount:totals.tax,delivery_charge:0,grand_total:totals.grandTotal,payment_status:"paid",payment_method:paymentMethod,accepted_at:new Date().toISOString()})});if(!orderRes.ok)throw new Error(await orderRes.text());const order=(await orderRes.json() as {id:string}[])[0];if(!order)throw new Error("Order was not created.");const lines=cart.map(l=>({order_id:order.id,menu_item_id:l.id,item_name:l.name,sku:l.sku,quantity:l.quantity,unit_price:Number(l.base_price),packaging_amount:Number(l.packaging_charge)*l.quantity,discount_amount:0,tax_amount:((Number(l.base_price)+Number(l.packaging_charge))*l.quantity*Number(l.tax_rate))/100,line_total:(Number(l.base_price)+Number(l.packaging_charge))*l.quantity*(1+Number(l.tax_rate)/100)}));const lineRes=await fetch(`${url}/rest/v1/order_items`,{method:"POST",headers:headers(key,"return=minimal"),body:JSON.stringify(lines)});if(!lineRes.ok)throw new Error(await lineRes.text());const receipt:Receipt={orderNumber,createdAt:new Date().toLocaleString("en-IN"),companyName:company.name,locationName:locations.find(l=>l.id===locationId)?.name??"",brandName:brands.find(b=>b.id===brandId)?.name??"",customerName,customerPhone,orderType,paymentMethod,lines:cart.map(l=>({...l})),subtotal:totals.subtotal,packaging:totals.packaging,tax:totals.tax,discount:Number(discount||0),grandTotal:totals.grandTotal};setLastReceipt(receipt);setMessage(`Bill ${orderNumber} created successfully for ₹${totals.grandTotal.toFixed(2)}.`);setCart([]);setCustomerName("");setCustomerPhone("");setDiscount(0);}catch(e){setError(e instanceof Error?e.message:"Unable to create bill.");}finally{setSaving(false);} }
 
-  function addItem(item: MenuItem) {
-    setCart((current) => {
-      const existing = current.find((line) => line.id === item.id);
-      return existing
-        ? current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line)
-        : [...current, { ...item, quantity: 1 }];
-    });
-  }
-
-  function changeQty(id: string, quantity: number) {
-    setCart((current) => quantity <= 0 ? current.filter((line) => line.id !== id) : current.map((line) => line.id === id ? { ...line, quantity } : line));
-  }
-
-  const filteredItems = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return items;
-    return items.filter((item) => item.name.toLowerCase().includes(query) || item.sku.toLowerCase().includes(query));
-  }, [items, search]);
-
-  const totals = useMemo(() => {
-    const subtotal = cart.reduce((sum, line) => sum + Number(line.base_price) * line.quantity, 0);
-    const packaging = cart.reduce((sum, line) => sum + Number(line.packaging_charge) * line.quantity, 0);
-    const tax = cart.reduce((sum, line) => sum + ((Number(line.base_price) + Number(line.packaging_charge)) * line.quantity * Number(line.tax_rate)) / 100, 0);
-    const grandTotal = Math.max(0, subtotal + packaging + tax - Number(discount || 0));
-    return { subtotal, packaging, tax, grandTotal };
-  }, [cart, discount]);
-
-  function openPrint(receipt: Receipt, mode: "kot" | "bill") {
-    const printWindow = window.open("", "_blank", "width=420,height=760");
-    if (!printWindow) {
-      setError("Popup blocked. Allow popups for localhost to print KOT or bill.");
-      return;
-    }
-    const itemRows = receipt.lines.map((line) => mode === "kot"
-      ? `<tr><td>${escapeHtml(line.name)}</td><td class="right">${line.quantity}</td></tr>`
-      : `<tr><td>${escapeHtml(line.name)}<div class="muted">${escapeHtml(line.sku)}</div></td><td class="center">${line.quantity}</td><td class="right">₹${Number(line.base_price).toFixed(2)}</td><td class="right">₹${(Number(line.base_price) * line.quantity).toFixed(2)}</td></tr>`
-    ).join("");
-
-    printWindow.document.write(`<!doctype html><html><head><title>${mode === "kot" ? "KOT" : "Bill"} ${receipt.orderNumber}</title><style>
-      @page{size:80mm auto;margin:4mm}body{font-family:Arial,sans-serif;width:72mm;margin:0 auto;color:#000;font-size:12px}.center{text-align:center}.right{text-align:right}.muted{font-size:10px;color:#444}.line{border-top:1px dashed #000;margin:8px 0}.title{font-size:18px;font-weight:800}.label{font-weight:700}table{width:100%;border-collapse:collapse}th,td{padding:5px 2px;vertical-align:top}th{border-bottom:1px solid #000}.totals td{padding:3px 2px}.grand{font-size:16px;font-weight:800}.no-print{margin-top:12px;width:100%;padding:10px;font-weight:700}@media print{.no-print{display:none}}
-    </style></head><body>
-      <div class="center title">${escapeHtml(receipt.brandName)}</div>
-      <div class="center">${escapeHtml(receipt.locationName)}</div>
-      <div class="center label">${mode === "kot" ? "KITCHEN ORDER TICKET" : "TAX INVOICE / BILL"}</div>
-      <div class="line"></div>
-      <div><span class="label">Order:</span> ${escapeHtml(receipt.orderNumber)}</div>
-      <div><span class="label">Date:</span> ${escapeHtml(receipt.createdAt)}</div>
-      <div><span class="label">Type:</span> ${escapeHtml(receipt.orderType.replaceAll("_", " ").toUpperCase())}</div>
-      ${receipt.customerName ? `<div><span class="label">Customer:</span> ${escapeHtml(receipt.customerName)}</div>` : ""}
-      ${receipt.customerPhone ? `<div><span class="label">Phone:</span> ${escapeHtml(receipt.customerPhone)}</div>` : ""}
-      <div class="line"></div>
-      <table><thead><tr>${mode === "kot" ? "<th>Item</th><th class='right'>Qty</th>" : "<th>Item</th><th>Qty</th><th class='right'>Rate</th><th class='right'>Amount</th>"}</tr></thead><tbody>${itemRows}</tbody></table>
-      ${mode === "bill" ? `<div class="line"></div><table class="totals"><tr><td>Subtotal</td><td class="right">₹${receipt.subtotal.toFixed(2)}</td></tr><tr><td>Packaging</td><td class="right">₹${receipt.packaging.toFixed(2)}</td></tr><tr><td>Tax</td><td class="right">₹${receipt.tax.toFixed(2)}</td></tr><tr><td>Discount</td><td class="right">-₹${receipt.discount.toFixed(2)}</td></tr><tr class="grand"><td>Total</td><td class="right">₹${receipt.grandTotal.toFixed(2)}</td></tr></table><div class="line"></div><div><span class="label">Payment:</span> ${escapeHtml(receipt.paymentMethod.toUpperCase())}</div><div class="center" style="margin-top:10px">Thank you!</div>` : `<div class="line"></div><div class="center label">Prepare immediately</div>`}
-      <button class="no-print" onclick="window.print()">Print ${mode === "kot" ? "KOT" : "Bill"}</button>
-      <script>window.onload=()=>setTimeout(()=>window.print(),250)</script>
-    </body></html>`);
-    printWindow.document.close();
-  }
-
-  async function createBill() {
-    if (!company || !locationId || !brandId || !cart.length) {
-      setError("Select a location, brand and at least one menu item.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    setMessage("");
-    try {
-      const { url, key } = config();
-      const orderNumber = `POS-${Date.now().toString().slice(-10)}`;
-      const orderRes = await fetch(`${url}/rest/v1/orders`, {
-        method: "POST",
-        headers: headers(key, "return=representation"),
-        body: JSON.stringify({
-          company_id: company.id,
-          location_id: locationId,
-          brand_id: brandId,
-          order_number: orderNumber,
-          source: orderType,
-          status: "accepted",
-          customer_name: customerName || null,
-          customer_phone: customerPhone || null,
-          subtotal: totals.subtotal,
-          packaging_amount: totals.packaging,
-          discount_amount: Number(discount || 0),
-          tax_amount: totals.tax,
-          delivery_charge: 0,
-          grand_total: totals.grandTotal,
-          payment_status: "paid",
-          payment_method: paymentMethod,
-          accepted_at: new Date().toISOString(),
-        }),
-      });
-      if (!orderRes.ok) throw new Error(await orderRes.text());
-      const order = ((await orderRes.json()) as { id: string }[])[0];
-      if (!order) throw new Error("Order was not created.");
-
-      const lines = cart.map((line) => ({
-        order_id: order.id,
-        menu_item_id: line.id,
-        item_name: line.name,
-        sku: line.sku,
-        quantity: line.quantity,
-        unit_price: Number(line.base_price),
-        packaging_amount: Number(line.packaging_charge) * line.quantity,
-        discount_amount: 0,
-        tax_amount: ((Number(line.base_price) + Number(line.packaging_charge)) * line.quantity * Number(line.tax_rate)) / 100,
-        line_total: (Number(line.base_price) + Number(line.packaging_charge)) * line.quantity * (1 + Number(line.tax_rate) / 100),
-      }));
-      const lineRes = await fetch(`${url}/rest/v1/order_items`, {
-        method: "POST",
-        headers: headers(key, "return=minimal"),
-        body: JSON.stringify(lines),
-      });
-      if (!lineRes.ok) throw new Error(await lineRes.text());
-
-      const receipt: Receipt = {
-        orderNumber,
-        createdAt: new Date().toLocaleString("en-IN"),
-        companyName: company.name,
-        locationName: locations.find((location) => location.id === locationId)?.name ?? "",
-        brandName: brands.find((brand) => brand.id === brandId)?.name ?? "",
-        customerName,
-        customerPhone,
-        orderType,
-        paymentMethod,
-        lines: cart.map((line) => ({ ...line })),
-        subtotal: totals.subtotal,
-        packaging: totals.packaging,
-        tax: totals.tax,
-        discount: Number(discount || 0),
-        grandTotal: totals.grandTotal,
-      };
-      setLastReceipt(receipt);
-      setMessage(`Bill ${orderNumber} created successfully for ₹${totals.grandTotal.toFixed(2)}. Print KOT and bill below.`);
-      setCart([]);
-      setCustomerName("");
-      setCustomerPhone("");
-      setDiscount(0);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to create bill.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-100 p-4 text-slate-950 md:p-6">
-      <div className="mx-auto max-w-[1600px] space-y-4">
-        <header className="rounded-3xl bg-slate-950 p-6 text-white">
-          <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-400">Takshvi POS</p>
-          <h1 className="mt-1 text-3xl font-black">Fast billing</h1>
-        </header>
-        <section className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-          <div className="space-y-4">
-            <div className="grid gap-3 rounded-3xl bg-white p-5 shadow-sm md:grid-cols-3">
-              <select value={locationId} onChange={(event) => setLocationId(event.target.value)} className="h-12 rounded-xl border px-4">{locations.map((location) => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select>
-              <select value={brandId} onChange={(event) => setBrandId(event.target.value)} className="h-12 rounded-xl border px-4">{brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select>
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item or SKU" className="h-12 rounded-xl border px-4" />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredItems.map((item) => <button key={item.id} onClick={() => addItem(item)} className="rounded-2xl bg-white p-5 text-left shadow-sm hover:ring-2 hover:ring-emerald-500"><p className="text-xs font-bold text-slate-500">{item.sku}</p><h3 className="mt-1 font-black">{item.name}</h3><p className="mt-3 text-xl font-black text-emerald-700">₹{Number(item.base_price).toFixed(2)}</p></button>)}
-              {!filteredItems.length && <p className="rounded-2xl bg-white p-6 text-slate-500">No POS menu items found for this brand.</p>}
-            </div>
-          </div>
-          <aside className="rounded-3xl bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black">Current bill</h2>
-            <div className="mt-4 space-y-3">{cart.map((line) => <div key={line.id} className="rounded-2xl border p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-black">{line.name}</p><p className="text-xs text-slate-500">₹{Number(line.base_price).toFixed(2)} each</p></div><p className="font-black">₹{(Number(line.base_price) * line.quantity).toFixed(2)}</p></div><div className="mt-3 flex items-center gap-2"><button onClick={() => changeQty(line.id, line.quantity - 1)} className="h-9 w-9 rounded-lg border font-black">−</button><span className="min-w-10 text-center font-black">{line.quantity}</span><button onClick={() => changeQty(line.id, line.quantity + 1)} className="h-9 w-9 rounded-lg border font-black">+</button></div></div>)}{!cart.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Tap menu items to add them.</p>}</div>
-            <div className="mt-5 grid gap-3"><input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name" className="h-11 rounded-xl border px-3" /><input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Customer phone" className="h-11 rounded-xl border px-3" /><div className="grid grid-cols-2 gap-3"><select value={orderType} onChange={(event) => setOrderType(event.target.value)} className="h-11 rounded-xl border px-3"><option value="walk_in">Walk-in</option><option value="takeaway">Takeaway</option><option value="phone">Phone</option></select><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="h-11 rounded-xl border px-3"><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="mixed">Mixed</option></select></div><input type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(Number(event.target.value))} placeholder="Discount ₹" className="h-11 rounded-xl border px-3" /></div>
-            <div className="mt-5 space-y-2 border-t pt-4 text-sm"><div className="flex justify-between"><span>Subtotal</span><b>₹{totals.subtotal.toFixed(2)}</b></div><div className="flex justify-between"><span>Packaging</span><b>₹{totals.packaging.toFixed(2)}</b></div><div className="flex justify-between"><span>Tax</span><b>₹{totals.tax.toFixed(2)}</b></div><div className="flex justify-between"><span>Discount</span><b>−₹{Number(discount || 0).toFixed(2)}</b></div><div className="flex justify-between pt-2 text-xl"><span className="font-black">Total</span><b>₹{totals.grandTotal.toFixed(2)}</b></div></div>
-            <button onClick={createBill} disabled={saving || !cart.length} className="mt-5 h-14 w-full rounded-xl bg-slate-950 font-black text-white hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-50">{saving ? "Creating bill..." : "Create bill"}</button>
-            {lastReceipt && <div className="mt-4 grid grid-cols-2 gap-3"><button onClick={() => openPrint(lastReceipt, "kot")} className="h-12 rounded-xl bg-amber-400 font-black text-slate-950">Print KOT</button><button onClick={() => openPrint(lastReceipt, "bill")} className="h-12 rounded-xl bg-emerald-500 font-black text-slate-950">Print Bill</button></div>}
-            {message && <p className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700">{message}</p>}
-            {error && <p className="mt-4 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
-          </aside>
-        </section>
-      </div>
-    </main>
-  );
+  return <main className="min-h-screen bg-slate-100 p-4 text-slate-950 md:p-6"><div className="mx-auto max-w-[1600px] space-y-4"><header className="rounded-3xl bg-slate-950 p-6 text-white"><p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-400">Takshvi POS</p><h1 className="mt-1 text-3xl font-black">Fast billing</h1></header><section className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]"><div className="space-y-4"><div className="grid gap-3 rounded-3xl bg-white p-5 shadow-sm md:grid-cols-3"><select value={locationId} onChange={e=>setLocationId(e.target.value)} className="h-12 rounded-xl border px-4">{locations.map(l=><option key={l.id} value={l.id}>{l.name} ({l.code})</option>)}</select><select value={brandId} onChange={e=>setBrandId(e.target.value)} className="h-12 rounded-xl border px-4">{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search item or SKU" className="h-12 rounded-xl border px-4"/></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filteredItems.map(i=><button key={i.id} onClick={()=>addItem(i)} className="rounded-2xl bg-white p-5 text-left shadow-sm hover:ring-2 hover:ring-emerald-500"><p className="text-xs font-bold text-slate-500">{i.sku}</p><h3 className="mt-1 font-black">{i.name}</h3><p className="mt-3 text-xl font-black text-emerald-700">₹{Number(i.base_price).toFixed(2)}</p></button>)}</div></div><aside className="rounded-3xl bg-white p-5 shadow-sm"><h2 className="text-xl font-black">Current bill</h2><div className="mt-4 space-y-3">{cart.map(l=><div key={l.id} className="rounded-2xl border p-3"><div className="flex justify-between"><b>{l.name}</b><b>₹{(Number(l.base_price)*l.quantity).toFixed(2)}</b></div><div className="mt-3 flex items-center gap-2"><button onClick={()=>changeQty(l.id,l.quantity-1)} className="h-9 w-9 rounded-lg border font-black">−</button><b>{l.quantity}</b><button onClick={()=>changeQty(l.id,l.quantity+1)} className="h-9 w-9 rounded-lg border font-black">+</button></div></div>)}{!cart.length&&<p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Tap menu items to add them.</p>}</div><div className="mt-5 grid gap-3"><input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name" className="h-11 rounded-xl border px-3"/><input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="Customer WhatsApp number" className="h-11 rounded-xl border px-3"/><div className="grid grid-cols-2 gap-3"><select value={orderType} onChange={e=>setOrderType(e.target.value)} className="h-11 rounded-xl border px-3"><option value="walk_in">Walk-in</option><option value="takeaway">Takeaway</option><option value="phone">Phone</option></select><select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value)} className="h-11 rounded-xl border px-3"><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="mixed">Mixed</option></select></div><input type="number" min="0" step="0.01" value={discount} onChange={e=>setDiscount(Number(e.target.value))} placeholder="Discount ₹" className="h-11 rounded-xl border px-3"/></div><div className="mt-5 space-y-2 border-t pt-4 text-sm"><div className="flex justify-between"><span>Subtotal</span><b>₹{totals.subtotal.toFixed(2)}</b></div><div className="flex justify-between"><span>Tax</span><b>₹{totals.tax.toFixed(2)}</b></div><div className="flex justify-between pt-2 text-xl"><b>Total</b><b>₹{totals.grandTotal.toFixed(2)}</b></div></div><button onClick={createBill} disabled={saving||!cart.length} className="mt-5 h-14 w-full rounded-xl bg-slate-950 font-black text-white disabled:opacity-50">{saving?"Creating bill...":"Create bill"}</button>{lastReceipt&&<div className="mt-4 grid gap-3 sm:grid-cols-3"><button onClick={()=>openPrint(lastReceipt,"kot")} className="h-12 rounded-xl bg-amber-400 font-black">Print KOT</button><button onClick={()=>openPrint(lastReceipt,"bill")} className="h-12 rounded-xl bg-emerald-500 font-black">Print Bill</button><button onClick={()=>void sendWhatsApp(lastReceipt)} disabled={sendingWhatsApp||!lastReceipt.customerPhone} className="h-12 rounded-xl bg-green-600 px-3 font-black text-white disabled:opacity-40">{sendingWhatsApp?"Sending...":"Send WhatsApp"}</button></div>}{lastReceipt&&!lastReceipt.customerPhone&&<p className="mt-3 text-xs font-bold text-amber-700">Add the customer WhatsApp number before creating the bill to enable direct sending.</p>}{message&&<p className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700">{message}</p>}{error&&<p className="mt-4 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}</aside></section></div></main>;
 }
