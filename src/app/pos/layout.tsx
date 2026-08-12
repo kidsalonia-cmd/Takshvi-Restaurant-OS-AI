@@ -19,13 +19,13 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <>
+    <div className="pos-mobile-shell min-h-screen">
       {syncError ? (
         <div className="fixed left-1/2 top-3 z-[120] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white shadow-xl">
           Central Park Gazebo menu update: {syncError}
         </div>
       ) : null}
       {children}
-    </>
+    </div>
   );
 }
