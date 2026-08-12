@@ -9,39 +9,51 @@ export default function PosMobileFlow() {
   const [itemCount, setItemCount] = useState(0);
 
   useEffect(() => {
+    const shell = document.querySelector<HTMLElement>(".pos-mobile-shell");
     const sync = () => {
       const aside = document.querySelector<HTMLElement>(".pos-mobile-shell main aside");
       if (!aside) return;
-      const lines = Array.from(aside.querySelectorAll<HTMLElement>("[data-pos-cart-line]"));
-      const count = lines.reduce((sum, line) => sum + Number(line.dataset.qty || 0), 0);
+
+      const cartContainer = aside.querySelector<HTMLElement>(":scope > div.mt-4");
+      const lines = cartContainer
+        ? Array.from(cartContainer.querySelectorAll<HTMLElement>(":scope > div.rounded-2xl.border"))
+        : [];
+
+      let count = 0;
       const names = lines.slice(0, 3).map((line) => {
-        const name = line.dataset.name || "Item";
-        const qty = line.dataset.qty || "1";
+        const topRow = line.querySelector<HTMLElement>(":scope > div.flex.justify-between");
+        const name = topRow?.querySelector("b:first-child")?.textContent?.trim() || "Item";
+        const qtyRow = line.querySelector<HTMLElement>(":scope > div.mt-3.flex");
+        const qtyText = qtyRow?.querySelector("b")?.textContent?.trim() || "1";
+        const qty = Number(qtyText) || 1;
+        count += qty;
         return `${name} × ${qty}`;
       });
+      for (const line of lines.slice(3)) {
+        const qtyText = line.querySelector<HTMLElement>(":scope > div.mt-3.flex b")?.textContent?.trim() || "1";
+        count += Number(qtyText) || 1;
+      }
+
       setItemCount(count);
       setCartText(names.length ? `${names.join(" · ")}${lines.length > 3 ? ` · +${lines.length - 3} more` : ""}` : "No items added");
-      const total = aside.querySelector<HTMLElement>("[data-pos-total]")?.textContent?.trim();
+
+      const totalRow = Array.from(aside.querySelectorAll<HTMLElement>("div.flex.justify-between")).find((row) => row.textContent?.trim().startsWith("Total"));
+      const total = totalRow?.querySelector("b:last-child")?.textContent?.trim();
       setTotalText(total || "₹0.00");
-      aside.dataset.mobileBillingOpen = billingOpen ? "1" : "0";
     };
 
+    if (shell) shell.dataset.mobileBillingOpen = billingOpen ? "1" : "0";
     sync();
     const observer = new MutationObserver(sync);
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
-  }, [billingOpen]);
-
-  useEffect(() => {
-    const aside = document.querySelector<HTMLElement>(".pos-mobile-shell main aside");
-    if (aside) aside.dataset.mobileBillingOpen = billingOpen ? "1" : "0";
   }, [billingOpen]);
 
   if (billingOpen) {
     return (
       <button
         type="button"
-        onClick={() => setBillingOpen(false)}
+        onClick={() => { setBillingOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
         className="fixed left-3 top-3 z-[115] hidden rounded-xl bg-white px-4 py-2 text-sm font-black text-slate-950 shadow-xl max-md:block"
       >
         ← Add / edit items
