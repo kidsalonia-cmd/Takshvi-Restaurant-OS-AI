@@ -24,3 +24,110 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@media (max-width: 767px) {
+  .pos-mobile-shell main {
+    padding: 0.75rem !important;
+    padding-bottom: 6.5rem !important;
+  }
+
+  .pos-mobile-shell main > div {
+    max-width: none !important;
+    gap: 0.75rem !important;
+  }
+
+  .pos-mobile-shell main header {
+    border-radius: 1rem !important;
+    padding: 1rem !important;
+  }
+
+  .pos-mobile-shell main header p {
+    font-size: 0.7rem !important;
+  }
+
+  .pos-mobile-shell main header h1 {
+    font-size: 1.5rem !important;
+    line-height: 2rem !important;
+  }
+
+  .pos-mobile-shell main section {
+    display: block !important;
+  }
+
+  .pos-mobile-shell main section > div {
+    min-width: 0 !important;
+  }
+
+  .pos-mobile-shell main section > div > div:first-child {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 25;
+    grid-template-columns: 1fr !important;
+    gap: 0.5rem !important;
+    border-radius: 1rem !important;
+    padding: 0.75rem !important;
+  }
+
+  .pos-mobile-shell main section > div > div:first-child select,
+  .pos-mobile-shell main section > div > div:first-child input {
+    min-width: 0 !important;
+    width: 100% !important;
+    height: 3rem !important;
+    font-size: 1rem !important;
+  }
+
+  .pos-mobile-shell main section > div > div:nth-child(2) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+  }
+
+  .pos-mobile-shell main section > div > div:nth-child(2) > button {
+    min-height: 7.25rem !important;
+    border-radius: 1rem !important;
+    padding: 0.75rem !important;
+  }
+
+  .pos-mobile-shell main section > div > div:nth-child(2) > button p:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.65rem !important;
+  }
+
+  .pos-mobile-shell main section > div > div:nth-child(2) > button h3 {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    font-size: 0.875rem !important;
+    line-height: 1.15rem !important;
+  }
+
+  .pos-mobile-shell main section > div > div:nth-child(2) > button p:last-child {
+    margin-top: 0.65rem !important;
+    font-size: 1.05rem !important;
+  }
+
+  .pos-mobile-shell main aside {
+    margin-top: 0.75rem !important;
+    border-radius: 1rem !important;
+    padding: 1rem !important;
+  }
+
+  .pos-mobile-shell main aside input,
+  .pos-mobile-shell main aside select {
+    min-width: 0 !important;
+    height: 3rem !important;
+    font-size: 1rem !important;
+  }
+
+  .pos-mobile-shell main aside button {
+    min-height: 2.75rem;
+    touch-action: manipulation;
+  }
+
+  .pos-mobile-shell main aside > button {
+    height: 3.5rem !important;
+    font-size: 1rem !important;
+  }
+}
