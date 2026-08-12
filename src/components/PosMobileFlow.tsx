@@ -2,11 +2,25 @@
 
 import { useEffect, useState } from "react";
 
+type SummaryLine = {
+  name: string;
+  qty: number;
+  amount: string;
+};
+
+function getCartLines() {
+  const aside = document.querySelector<HTMLElement>(".pos-mobile-shell main aside");
+  if (!aside) return [] as HTMLElement[];
+  const cartContainer = aside.querySelector<HTMLElement>(":scope > div.mt-4");
+  return cartContainer
+    ? Array.from(cartContainer.querySelectorAll<HTMLElement>(":scope > div.rounded-2xl.border"))
+    : [];
+}
+
 export default function PosMobileFlow() {
   const [billingOpen, setBillingOpen] = useState(false);
-  const [cartText, setCartText] = useState("No items added");
+  const [lines, setLines] = useState<SummaryLine[]>([]);
   const [totalText, setTotalText] = useState("₹0.00");
-  const [itemCount, setItemCount] = useState(0);
 
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>(".pos-mobile-shell");
@@ -14,28 +28,15 @@ export default function PosMobileFlow() {
       const aside = document.querySelector<HTMLElement>(".pos-mobile-shell main aside");
       if (!aside) return;
 
-      const cartContainer = aside.querySelector<HTMLElement>(":scope > div.mt-4");
-      const lines = cartContainer
-        ? Array.from(cartContainer.querySelectorAll<HTMLElement>(":scope > div.rounded-2xl.border"))
-        : [];
-
-      let count = 0;
-      const names = lines.slice(0, 3).map((line) => {
+      const summary = getCartLines().map((line) => {
         const topRow = line.querySelector<HTMLElement>(":scope > div.flex.justify-between");
         const name = topRow?.querySelector("b:first-child")?.textContent?.trim() || "Item";
+        const amount = topRow?.querySelector("b:last-child")?.textContent?.trim() || "₹0.00";
         const qtyRow = line.querySelector<HTMLElement>(":scope > div.mt-3.flex");
-        const qtyText = qtyRow?.querySelector("b")?.textContent?.trim() || "1";
-        const qty = Number(qtyText) || 1;
-        count += qty;
-        return `${name} × ${qty}`;
+        const qty = Number(qtyRow?.querySelector("b")?.textContent?.trim() || "1") || 1;
+        return { name, qty, amount };
       });
-      for (const line of lines.slice(3)) {
-        const qtyText = line.querySelector<HTMLElement>(":scope > div.mt-3.flex b")?.textContent?.trim() || "1";
-        count += Number(qtyText) || 1;
-      }
-
-      setItemCount(count);
-      setCartText(names.length ? `${names.join(" · ")}${lines.length > 3 ? ` · +${lines.length - 3} more` : ""}` : "No items added");
+      setLines(summary);
 
       const totalRow = Array.from(aside.querySelectorAll<HTMLElement>("div.flex.justify-between")).find((row) => row.textContent?.trim().startsWith("Total"));
       const total = totalRow?.querySelector("b:last-child")?.textContent?.trim();
@@ -48,6 +49,16 @@ export default function PosMobileFlow() {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, [billingOpen]);
+
+  function adjustQty(index: number, direction: "minus" | "plus") {
+    const line = getCartLines()[index];
+    if (!line) return;
+    const buttons = line.querySelectorAll<HTMLButtonElement>(":scope > div.mt-3.flex button");
+    const target = direction === "minus" ? buttons[0] : buttons[buttons.length - 1];
+    target?.click();
+  }
+
+  const itemCount = lines.reduce((sum, line) => sum + line.qty, 0);
 
   if (billingOpen) {
     return (
@@ -64,13 +75,54 @@ export default function PosMobileFlow() {
   return (
     <div className="fixed inset-x-0 bottom-[4.45rem] z-[60] hidden border-t border-slate-200 bg-white/98 px-3 pb-3 pt-2 shadow-[0_-12px_32px_rgba(15,23,42,0.16)] backdrop-blur max-md:block">
       <div className="mx-auto max-w-xl">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Current bill · {itemCount} item{itemCount === 1 ? "" : "s"}</p>
-            <p className="mt-0.5 truncate text-sm font-bold text-slate-900">{cartText}</p>
-          </div>
-          <p className="shrink-0 text-xl font-black text-emerald-700">{totalText}</p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+            Current bill · {itemCount} item{itemCount === 1 ? "" : "s"}
+          </p>
+          <p className="text-xl font-black text-emerald-700">{totalText}</p>
         </div>
+
+        {lines.length ? (
+          <div className="max-h-[27vh] overflow-y-auto rounded-xl border border-slate-200">
+            <table className="w-full table-fixed border-collapse text-sm">
+              <thead className="sticky top-0 bg-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="w-[52%] px-2 py-2 text-left">Item</th>
+                  <th className="w-[30%] px-1 py-2 text-center">Qty</th>
+                  <th className="w-[18%] px-2 py-2 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line, index) => (
+                  <tr key={`${line.name}-${index}`} className="border-t border-slate-100">
+                    <td className="px-2 py-2 font-bold leading-tight text-slate-900">{line.name}</td>
+                    <td className="px-1 py-2">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          aria-label={`Reduce ${line.name}`}
+                          onClick={() => adjustQty(index, "minus")}
+                          className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 bg-white text-lg font-black"
+                        >−</button>
+                        <span className="min-w-6 text-center font-black">{line.qty}</span>
+                        <button
+                          type="button"
+                          aria-label={`Add ${line.name}`}
+                          onClick={() => adjustQty(index, "plus")}
+                          className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 bg-white text-lg font-black"
+                        >+</button>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-right text-xs font-black text-slate-700">{line.amount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-500">Tap a menu item to start the bill.</p>
+        )}
+
         <button
           type="button"
           disabled={itemCount === 0}
