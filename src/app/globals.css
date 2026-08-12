@@ -28,7 +28,7 @@ body {
 @media (max-width: 767px) {
   .pos-mobile-shell main {
     padding: 0.75rem !important;
-    padding-bottom: calc(7.5rem + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(12.5rem + env(safe-area-inset-bottom)) !important;
   }
 
   .pos-mobile-shell main > div {
@@ -117,8 +117,24 @@ body {
     font-size: 1.05rem !important;
   }
 
+  /* Step 1: keep billing panel hidden while staff tap menu items. */
+  .pos-mobile-shell[data-mobile-billing-open="0"] main aside {
+    display: none !important;
+  }
+
+  /* Step 2: after Proceed to Billing, show only the billing panel. */
+  .pos-mobile-shell[data-mobile-billing-open="1"] main header,
+  .pos-mobile-shell[data-mobile-billing-open="1"] main section > div:first-child {
+    display: none !important;
+  }
+
+  .pos-mobile-shell[data-mobile-billing-open="1"] main {
+    padding-top: 3.75rem !important;
+    padding-bottom: calc(6rem + env(safe-area-inset-bottom)) !important;
+  }
+
   .pos-mobile-shell main aside {
-    margin-top: 0.75rem !important;
+    margin-top: 0 !important;
     border-radius: 1rem !important;
     padding: 1rem !important;
     display: flex !important;
@@ -133,13 +149,13 @@ body {
     order: 0;
   }
 
-  /* Customer name / phone / order type / payment first on mobile. */
+  /* Customer name / phone / order type / payment first on mobile billing step. */
   .pos-mobile-shell main aside > div:nth-of-type(2) {
     order: 1;
     margin-top: 1rem !important;
   }
 
-  /* Bill items come immediately after customer details. */
+  /* Selected-item summary comes after customer and payment details. */
   .pos-mobile-shell main aside > div:nth-of-type(1) {
     order: 2;
     margin-top: 1rem !important;
