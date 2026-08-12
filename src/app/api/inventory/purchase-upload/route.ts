@@ -61,13 +61,13 @@ export async function POST(request: NextRequest) {
       const oldQty = Number(match.current_stock || 0);
       const oldCost = Number(match.average_cost || 0);
       const newQty = oldQty + quantity;
-      const newCost = newQty > 0 ? ((oldQty * oldCost) + (quantity * rate)) / newQty : rate;
+      const newCost = rate > 0 && newQty > 0 ? ((oldQty * oldCost) + (quantity * rate)) / newQty : oldCost;
       await db(`inventory_items?id=eq.${encodeURIComponent(match.id)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ current_stock: newQty, average_cost: newCost, updated_at: new Date().toISOString() }) });
       match.current_stock = newQty; match.average_cost = newCost;
-      results.push({ item: match.name, quantity, rate, status: "Posted" });
+      results.push({ item: match.name, quantity, rate, status: rate > 0 ? "Posted" : "Posted - cost unchanged" });
     }
 
-    const posted = results.filter((row) => row.status === "Posted").length;
+    const posted = results.filter((row) => row.status.startsWith("Posted")).length;
     const unmatched = results.length - posted;
     return NextResponse.json({ success: true, sourceOnly: false, storedPath: storedPath || null, posted, unmatched, results, message: `${posted} purchase line(s) posted to inventory.${unmatched ? ` ${unmatched} line(s) could not be matched by SKU/name.` : ""}` });
   } catch (error) {
