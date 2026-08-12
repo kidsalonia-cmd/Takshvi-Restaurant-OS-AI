@@ -11,7 +11,7 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#020617",
     orientation: "portrait-primary",
     icons: [
-      { src: "/takshvi-app-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
+      { src: "/takshvi-app-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" },
     ],
   };
 }
