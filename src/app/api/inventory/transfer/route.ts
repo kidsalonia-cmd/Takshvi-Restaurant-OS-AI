@@ -13,35 +13,41 @@ type InventoryItem = {
   is_active: boolean;
 };
 
-function config() {
+type LocationRow = { id: string; name: string; code: string };
+
+type JsonInit = {
+  method?: string;
+  prefer?: string;
+  body?: unknown;
+};
+
+function cfg() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) throw new Error("Supabase configuration is missing.");
   return { url, key };
 }
 
-function headers(key: string, prefer?: string) {
-  return {
+async function db<T>(path: string, init: JsonInit = {}): Promise<T> {
+  const { url, key } = cfg();
+  const requestHeaders: Record<string, string> = {
     apikey: key,
     Authorization: `Bearer ${key}`,
     "Content-Type": "application/json",
-    ...(prefer ? { Prefer: prefer } : {}),
   };
-}
-
-async function db(path: string, init: RequestInit = {}) {
-  const { url, key } = config();
+  if (init.prefer) requestHeaders.Prefer = init.prefer;
   const response = await fetch(`${url}/rest/v1/${path}`, {
-    ...init,
-    headers: { ...headers(key), ...(init.headers || {}) },
+    method: init.method || "GET",
+    headers: requestHeaders,
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
     cache: "no-store",
   });
   if (!response.ok) throw new Error(await response.text());
   const text = await response.text();
-  return text ? JSON.parse(text) : null;
+  return (text ? JSON.parse(text) : null) as T;
 }
 
-function safeNumber(value: unknown) {
+function n(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -55,11 +61,10 @@ export async function POST(request: NextRequest) {
       quantity?: number;
       note?: string;
     };
-
     const fromLocationId = String(body.fromLocationId || "").trim();
     const toLocationId = String(body.toLocationId || "").trim();
     const inventoryItemId = String(body.inventoryItemId || "").trim();
-    const quantity = safeNumber(body.quantity);
+    const quantity = n(body.quantity);
     const note = String(body.note || "").trim().slice(0, 500);
 
     if (!fromLocationId || !toLocationId || !inventoryItemId) {
@@ -72,118 +77,93 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Transfer quantity must be greater than zero." }, { status: 400 });
     }
 
-    const sourceRows = (await db(
+    const sourceRows = await db<InventoryItem[]>(
       `inventory_items?id=eq.${encodeURIComponent(inventoryItemId)}&location_id=eq.${encodeURIComponent(fromLocationId)}&select=id,company_id,location_id,name,sku,unit,current_stock,reorder_level,average_cost,is_active&limit=1`,
-    )) as InventoryItem[];
-    const source = sourceRows?.[0];
+    );
+    const source = sourceRows[0];
     if (!source) return NextResponse.json({ success: false, message: "Source inventory item was not found." }, { status: 404 });
 
-    const sourceStock = safeNumber(source.current_stock);
+    const sourceStock = n(source.current_stock);
     if (sourceStock < quantity) {
-      return NextResponse.json(
-        { success: false, message: `Insufficient stock. Available: ${sourceStock.toFixed(3)} ${source.unit}.` },
-        { status: 409 },
-      );
+      return NextResponse.json({ success: false, message: `Insufficient stock. Available: ${sourceStock.toFixed(3)} ${source.unit}.` }, { status: 409 });
     }
 
-    const locationRows = (await db(
-      `locations?id=in.("${fromLocationId.replaceAll('"', "')}","${toLocationId.replaceAll('"', "')}")&select=id,name,code`,
-    )) as { id: string; name: string; code: string }[];
-    const fromLocation = locationRows.find((row) => row.id === fromLocationId);
-    const toLocation = locationRows.find((row) => row.id === toLocationId);
-    if (!fromLocation || !toLocation) {
-      return NextResponse.json({ success: false, message: "One of the selected locations no longer exists." }, { status: 404 });
-    }
+    const fromRows = await db<LocationRow[]>(`locations?id=eq.${encodeURIComponent(fromLocationId)}&select=id,name,code&limit=1`);
+    const toRows = await db<LocationRow[]>(`locations?id=eq.${encodeURIComponent(toLocationId)}&select=id,name,code&limit=1`);
+    const fromLocation = fromRows[0];
+    const toLocation = toRows[0];
+    if (!fromLocation || !toLocation) return NextResponse.json({ success: false, message: "One of the selected locations no longer exists." }, { status: 404 });
 
     let destination: InventoryItem | undefined;
     if (source.sku) {
-      const rows = (await db(
+      destination = (await db<InventoryItem[]>(
         `inventory_items?location_id=eq.${encodeURIComponent(toLocationId)}&sku=eq.${encodeURIComponent(source.sku)}&select=id,company_id,location_id,name,sku,unit,current_stock,reorder_level,average_cost,is_active&limit=1`,
-      )) as InventoryItem[];
-      destination = rows?.[0];
+      ))[0];
     }
     if (!destination) {
-      const rows = (await db(
+      destination = (await db<InventoryItem[]>(
         `inventory_items?location_id=eq.${encodeURIComponent(toLocationId)}&name=eq.${encodeURIComponent(source.name)}&unit=eq.${encodeURIComponent(source.unit)}&select=id,company_id,location_id,name,sku,unit,current_stock,reorder_level,average_cost,is_active&limit=1`,
-      )) as InventoryItem[];
-      destination = rows?.[0];
+      ))[0];
     }
-
     if (destination && destination.unit !== source.unit) {
-      return NextResponse.json(
-        { success: false, message: `Destination item uses ${destination.unit}, but source uses ${source.unit}. Align the units before transferring.` },
-        { status: 409 },
-      );
+      return NextResponse.json({ success: false, message: `Destination item uses ${destination.unit}, but source uses ${source.unit}. Align the units before transferring.` }, { status: 409 });
     }
 
     const remainingSource = sourceStock - quantity;
-    const sourceUpdate = (await db(
+    const sourceUpdate = await db<InventoryItem[]>(
       `inventory_items?id=eq.${encodeURIComponent(source.id)}&current_stock=eq.${encodeURIComponent(String(source.current_stock))}`,
-      {
-        method: "PATCH",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ current_stock: remainingSource, updated_at: new Date().toISOString() }),
-      },
-    )) as InventoryItem[];
-
-    if (!Array.isArray(sourceUpdate) || !sourceUpdate.length) {
-      return NextResponse.json({ success: false, message: "Source stock changed while transferring. Refresh and try again." }, { status: 409 });
-    }
+      { method: "PATCH", prefer: "return=representation", body: { current_stock: remainingSource, updated_at: new Date().toISOString() } },
+    );
+    if (!sourceUpdate.length) return NextResponse.json({ success: false, message: "Source stock changed while transferring. Refresh and try again." }, { status: 409 });
 
     let destinationAfter = 0;
-    let destinationAverageCost = safeNumber(source.average_cost);
+    let destinationAverageCost = n(source.average_cost);
     let destinationItemId = "";
 
     try {
       if (destination) {
-        const destinationBefore = safeNumber(destination.current_stock);
+        const destinationBefore = n(destination.current_stock);
         destinationAfter = destinationBefore + quantity;
         destinationAverageCost = destinationAfter > 0
-          ? ((destinationBefore * safeNumber(destination.average_cost)) + (quantity * safeNumber(source.average_cost))) / destinationAfter
-          : safeNumber(source.average_cost);
-
-        const destinationUpdate = (await db(`inventory_items?id=eq.${encodeURIComponent(destination.id)}`, {
+          ? ((destinationBefore * n(destination.average_cost)) + (quantity * n(source.average_cost))) / destinationAfter
+          : n(source.average_cost);
+        const updated = await db<InventoryItem[]>(`inventory_items?id=eq.${encodeURIComponent(destination.id)}`, {
           method: "PATCH",
-          headers: { Prefer: "return=representation" },
-          body: JSON.stringify({
-            current_stock: destinationAfter,
-            average_cost: destinationAverageCost,
-            is_active: true,
-            updated_at: new Date().toISOString(),
-          }),
-        })) as InventoryItem[];
-        if (!destinationUpdate?.[0]) throw new Error("Destination stock could not be updated.");
+          prefer: "return=representation",
+          body: { current_stock: destinationAfter, average_cost: destinationAverageCost, is_active: true, updated_at: new Date().toISOString() },
+        });
+        if (!updated[0]) throw new Error("Destination stock could not be updated.");
         destinationItemId = destination.id;
       } else {
         destinationAfter = quantity;
-        const created = (await db("inventory_items", {
+        const created = await db<InventoryItem[]>("inventory_items", {
           method: "POST",
-          headers: { Prefer: "return=representation" },
-          body: JSON.stringify({
+          prefer: "return=representation",
+          body: {
             company_id: source.company_id,
             location_id: toLocationId,
             name: source.name,
             sku: source.sku,
             unit: source.unit,
             current_stock: quantity,
-            reorder_level: safeNumber(source.reorder_level),
-            average_cost: safeNumber(source.average_cost),
+            reorder_level: n(source.reorder_level),
+            average_cost: n(source.average_cost),
             is_active: true,
             updated_at: new Date().toISOString(),
-          }),
-        })) as InventoryItem[];
-        if (!created?.[0]) throw new Error("Destination inventory item could not be created.");
+          },
+        });
+        if (!created[0]) throw new Error("Destination inventory item could not be created.");
         destinationItemId = created[0].id;
       }
     } catch (destinationError) {
       try {
-        await db(`inventory_items?id=eq.${encodeURIComponent(source.id)}&current_stock=eq.${encodeURIComponent(String(remainingSource))}`, {
+        await db<unknown>(`inventory_items?id=eq.${encodeURIComponent(source.id)}&current_stock=eq.${encodeURIComponent(String(remainingSource))}`, {
           method: "PATCH",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ current_stock: sourceStock, updated_at: new Date().toISOString() }),
+          prefer: "return=minimal",
+          body: { current_stock: sourceStock, updated_at: new Date().toISOString() },
         });
       } catch {
-        // Preserve the original destination error. A subsequent manual stock review can resolve a rare concurrent rollback failure.
+        // Keep the destination failure as the primary error.
       }
       throw destinationError;
     }
