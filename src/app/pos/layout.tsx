@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PosCustomerMemory from "@/components/PosCustomerMemory";
 
 export default function PosLayout({ children }: { children: React.ReactNode }) {
   const [syncError, setSyncError] = useState("");
@@ -25,6 +26,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
           Central Park Gazebo menu update: {syncError}
         </div>
       ) : null}
+      <PosCustomerMemory />
       {children}
     </div>
   );
