@@ -203,7 +203,8 @@ export async function POST(request: NextRequest) {
       const form = new FormData();
       form.append("messaging_product", "whatsapp");
       form.append("type", "application/pdf");
-      form.append("file", new Blob([pdfBytes], { type: "application/pdf" }), filename);
+      const pdfArrayBuffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer;
+      form.append("file", new Blob([pdfArrayBuffer], { type: "application/pdf" }), filename);
 
       const uploadResponse = await fetch(`https://graph.facebook.com/${apiVersion}/${phoneNumberId}/media`, {
         method: "POST",
