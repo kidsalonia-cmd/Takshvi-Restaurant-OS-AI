@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { consumeMarketplaceInventory } from "@/lib/marketplaceInventory";
 import { deleteMarketplaceSourceFiles, saveMarketplaceSourceFile } from "@/lib/marketplaceStorage";
 
 type Row = Record<string, unknown>;
@@ -451,6 +452,23 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const inventoryConsumption = await consumeMarketplaceInventory({
+      reportId,
+      locationId,
+      brandId: effectiveBrandId || undefined,
+      reportType: parsed.reportType,
+      marketplace: parsed.marketplace,
+      periodStart: parsed.periodStart || periodStart,
+      periodEnd: parsed.periodEnd || periodEnd,
+      itemFacts: parsed.itemFacts,
+    });
+    const summaryWithInventory = { ...parsed.summary, inventoryConsumption };
+    await database(`marketplace_reports?id=eq.${encodeURIComponent(reportId)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ summary: summaryWithInventory }),
+    });
+
     return NextResponse.json({
       success: true,
       reportId,
@@ -461,8 +479,10 @@ export async function POST(request: NextRequest) {
       restaurantName: parsed.restaurantName,
       periodStart: parsed.periodStart,
       periodEnd: parsed.periodEnd,
-      summary: parsed.summary,
+      summary: summaryWithInventory,
       breakdown: parsed.breakdown,
+      inventoryConsumption,
+      message: inventoryConsumption.message,
     });
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to process report." }, { status: 500 });
