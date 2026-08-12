@@ -97,14 +97,15 @@ export default function PosCustomerMemory() {
       input.parentElement?.insertBefore(label, input);
     };
 
+    const handleViewport = () => updateAnchor(activeInput);
     relabelDiscount();
     const observer = new MutationObserver(relabelDiscount);
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("input", handleInput, true);
     document.addEventListener("focusin", handleFocus, true);
     document.addEventListener("mousedown", handlePointer, true);
-    window.addEventListener("scroll", () => updateAnchor(activeInput), true);
-    window.addEventListener("resize", () => updateAnchor(activeInput));
+    window.addEventListener("scroll", handleViewport, true);
+    window.addEventListener("resize", handleViewport);
 
     return () => {
       window.clearTimeout(timer);
@@ -112,6 +113,8 @@ export default function PosCustomerMemory() {
       document.removeEventListener("input", handleInput, true);
       document.removeEventListener("focusin", handleFocus, true);
       document.removeEventListener("mousedown", handlePointer, true);
+      window.removeEventListener("scroll", handleViewport, true);
+      window.removeEventListener("resize", handleViewport);
     };
   }, [activeInput]);
 
@@ -141,8 +144,8 @@ export default function PosCustomerMemory() {
       {anchor && (loading || results.length > 0) ? (
         <div
           data-customer-suggestions
-          className="fixed z-[150] max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
-          style={{ top: anchor.top, left: anchor.left, width: Math.min(anchor.width, window.innerWidth - anchor.left - 8) }}
+          className="fixed z-[150] max-h-72 max-w-[calc(100vw-16px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
+          style={{ top: anchor.top, left: anchor.left, width: anchor.width }}
         >
           {loading ? <p className="p-3 text-sm font-bold text-slate-500">Searching customers…</p> : null}
           {!loading && results.map((customer) => (
