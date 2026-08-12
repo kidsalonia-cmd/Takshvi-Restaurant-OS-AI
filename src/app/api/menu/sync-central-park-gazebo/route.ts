@@ -108,3 +108,5 @@ export async function POST() {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to replace Central Park Gazebo menu." }, { status: 500 });
   }
 }
+
+export const GET = POST;
