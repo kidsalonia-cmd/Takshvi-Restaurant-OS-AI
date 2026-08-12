@@ -28,7 +28,7 @@ body {
 @media (max-width: 767px) {
   .pos-mobile-shell main {
     padding: 0.75rem !important;
-    padding-bottom: calc(12.5rem + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(22rem + env(safe-area-inset-bottom)) !important;
   }
 
   .pos-mobile-shell main > div {
@@ -82,7 +82,7 @@ body {
   }
 
   .pos-mobile-shell main section > div > div:nth-child(2) > button {
-    min-height: 7.25rem !important;
+    min-height: 6.5rem !important;
     border-radius: 1rem !important;
     padding: 0.75rem !important;
     cursor: pointer;
@@ -96,11 +96,9 @@ body {
     box-shadow: inset 0 0 0 2px rgb(16 185 129);
   }
 
+  /* Internal CPG/SKU codes are not useful to counter staff on the mobile quick-bill screen. */
   .pos-mobile-shell main section > div > div:nth-child(2) > button p:first-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.65rem !important;
+    display: none !important;
   }
 
   .pos-mobile-shell main section > div > div:nth-child(2) > button h3 {
@@ -108,7 +106,8 @@ body {
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
-    font-size: 0.875rem !important;
+    margin-top: 0 !important;
+    font-size: 0.9rem !important;
     line-height: 1.15rem !important;
   }
 
