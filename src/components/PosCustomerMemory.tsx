@@ -5,10 +5,6 @@ import { useEffect, useState } from "react";
 type Customer = {
   name: string;
   phone: string;
-  visits: number;
-  lifetimeSales: number;
-  totalDiscount: number;
-  lastVisit: string;
 };
 
 type Anchor = { top: number; left: number; width: number } | null;
@@ -29,6 +25,7 @@ export default function PosCustomerMemory() {
   useEffect(() => {
     let timer: number | undefined;
     let requestId = 0;
+    let controller: AbortController | null = null;
 
     const updateAnchor = (input: HTMLInputElement | null) => {
       if (!input) return setAnchor(null);
@@ -48,6 +45,7 @@ export default function PosCustomerMemory() {
       const value = input.value.trim();
       const comparable = isPhone ? value.replace(/\D/g, "") : value;
       window.clearTimeout(timer);
+      controller?.abort();
       if (comparable.length < 4) {
         setResults([]);
         setLoading(false);
@@ -56,17 +54,22 @@ export default function PosCustomerMemory() {
 
       const currentRequest = ++requestId;
       timer = window.setTimeout(async () => {
+        controller = new AbortController();
         setLoading(true);
         try {
-          const response = await fetch(`/api/customers/search?q=${encodeURIComponent(value)}`, { cache: "no-store" });
+          const response = await fetch(`/api/customers/search?q=${encodeURIComponent(value)}&type=${isPhone ? "phone" : "name"}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
           const data = await response.json() as { customers?: Customer[] };
           if (currentRequest === requestId) setResults(data.customers || []);
-        } catch {
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") return;
           if (currentRequest === requestId) setResults([]);
         } finally {
           if (currentRequest === requestId) setLoading(false);
         }
-      }, 220);
+      }, 90);
     };
 
     const handleFocus = (event: FocusEvent) => {
@@ -109,6 +112,7 @@ export default function PosCustomerMemory() {
 
     return () => {
       window.clearTimeout(timer);
+      controller?.abort();
       observer.disconnect();
       document.removeEventListener("input", handleInput, true);
       document.removeEventListener("focusin", handleFocus, true);
@@ -127,48 +131,24 @@ export default function PosCustomerMemory() {
     setAnchor(null);
   }
 
-  return (
-    <>
-      <div className="pos-customer-tools fixed bottom-5 right-4 z-[75] hidden flex-col items-end gap-2 lg:flex">
-        <a
-          href="/api/customers/export"
-          className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-xl hover:bg-blue-700"
+  return anchor && (loading || results.length > 0) ? (
+    <div
+      data-customer-suggestions
+      className="fixed z-[150] max-h-72 max-w-[calc(100vw-16px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
+      style={{ top: anchor.top, left: anchor.left, width: anchor.width }}
+    >
+      {loading ? <p className="p-3 text-sm font-bold text-slate-500">Searching…</p> : null}
+      {!loading && results.map((customer) => (
+        <button
+          type="button"
+          key={`${customer.phone}-${customer.name}`}
+          onClick={() => choose(customer)}
+          className="block w-full rounded-xl px-3 py-3 text-left hover:bg-emerald-50"
         >
-          Download Customers Excel
-        </a>
-        <span className="rounded-lg bg-white/95 px-3 py-2 text-[11px] font-bold text-slate-600 shadow">
-          Customer lookup starts after 4 letters or 4 phone digits
-        </span>
-      </div>
-
-      {anchor && (loading || results.length > 0) ? (
-        <div
-          data-customer-suggestions
-          className="fixed z-[150] max-h-72 max-w-[calc(100vw-16px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
-          style={{ top: anchor.top, left: anchor.left, width: anchor.width }}
-        >
-          {loading ? <p className="p-3 text-sm font-bold text-slate-500">Searching customers…</p> : null}
-          {!loading && results.map((customer) => (
-            <button
-              type="button"
-              key={`${customer.phone}-${customer.name}`}
-              onClick={() => choose(customer)}
-              className="block w-full rounded-xl px-3 py-3 text-left hover:bg-emerald-50"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-black text-slate-950">{customer.name || "Unnamed customer"}</p>
-                  <p className="mt-1 text-sm font-bold text-slate-600">{customer.phone}</p>
-                </div>
-                <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-black">{customer.visits} visits</span>
-              </div>
-              <p className="mt-2 text-xs font-semibold text-slate-500">
-                Sales ₹{customer.lifetimeSales.toFixed(2)} · Discounts ₹{customer.totalDiscount.toFixed(2)}
-              </p>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </>
-  );
+          <p className="font-black text-slate-950">{customer.name || "Unnamed customer"}</p>
+          <p className="mt-1 text-sm font-bold text-slate-600">{customer.phone}</p>
+        </button>
+      ))}
+    </div>
+  ) : null;
 }

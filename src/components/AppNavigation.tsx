@@ -8,7 +8,7 @@ const navigation = [
   ["Dashboard", "/", "▦"], ["Orders", "/orders", "▣"], ["Billing POS", "/pos", "▤"],
   ["Locations", "/locations", "⌖"], ["Brands", "/brands", "◆"], ["Menu", "/menu", "☰"],
   ["Inventory", "/inventory", "◫"], ["Recipes & Cost", "/recipes", "⚖"], ["Excel Upload", "/bulk-upload", "⇧"], ["Purchases", "/purchases", "🛒"],
-  ["CRM", "/crm", "◎"], ["Finance", "/reports/daily", "₹"], ["Marketplace", "/marketplace", "◉"],
+  ["CRM", "/crm", "◎"], ["Finance", "/reports/daily", "₹"], ["Customer Report", "/reports/customers", "👤"], ["Marketplace", "/marketplace", "◉"],
   ["Source Files", "/marketplace/files", "⇩"], ["Outlet Analysis", "/marketplace/outlets", "◌"],
   ["Item Suggestions", "/marketplace/outlets/suggestions", "✦"], ["Marketplace Integrations", "/integrations/marketplaces", "↔"],
   ["Platform Logins", "/integrations/platform-logins", "⇥"], ["Instagram & GMB", "/integrations/social", "◎"], ["Settings", "/settings", "⚙"],
