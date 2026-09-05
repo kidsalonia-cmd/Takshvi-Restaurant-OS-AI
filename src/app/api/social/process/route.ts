@@ -20,7 +20,7 @@ async function processDue(request: Request) {
 
     const now = new Date().toISOString();
     const response = await fetch(
-      supabaseUrl(`cafe_social_post_queue?business_slug=eq.cafe-honeyman&status=eq.scheduled&scheduled_for=lte.${encodeURIComponent(now)}&select=*&order=scheduled_for.asc&limit=20`),
+      supabaseUrl(`cafe_social_post_queue?business_name=eq.Cafe%20Honeyman&status=eq.scheduled&scheduled_for=lte.${encodeURIComponent(now)}&select=*&order=scheduled_for.asc&limit=20`),
       { headers: supabaseHeaders(), cache: "no-store" },
     );
     if (!response.ok) throw new Error(await response.text());

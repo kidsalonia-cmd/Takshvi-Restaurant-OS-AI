@@ -79,16 +79,34 @@ export default function CafeSchedulerPage() {
   }
 
   return <main className="min-h-screen bg-slate-100 p-5 text-slate-950 md:p-8"><div className="mx-auto max-w-6xl space-y-6">
-    <header className="rounded-3xl bg-slate-950 p-7 text-white"><p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Cafe Honeyman</p><h1 className="mt-2 text-3xl font-black">Google Business Auto Posting & Scheduler</h1><p className="mt-3 text-sm text-slate-300">Google-first automation while Meta API approval is pending. Daily queue runs at 9:00 AM IST.</p><div className="mt-5 flex flex-wrap items-center gap-3"><span className={`rounded-full px-3 py-2 text-sm font-black ${status.google ? "bg-emerald-400 text-slate-950" : "bg-amber-300 text-slate-950"}`}>{status.google ? `Google Connected${status.googleLocation ? ` · ${status.googleLocation}` : ""}` : "Google Not Connected"}</span>{!status.google ? <a href="/api/google/auth" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">Connect Cafe Honeyman Google</a> : null}</div></header>
+    <header className="rounded-3xl bg-slate-950 p-7 text-white">
+      <p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Cafe Honeyman</p>
+      <h1 className="mt-2 text-3xl font-black">Google Business Auto Posting & Scheduler</h1>
+      <p className="mt-3 text-sm text-slate-300">Automatic posting is configured for 9:00 AM and 5:00 PM IST every day. Content focus rotates automatically and each automatic post receives a generated Cafe Honeyman image.</p>
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <span className={`rounded-full px-3 py-2 text-sm font-black ${status.google ? "bg-emerald-400 text-slate-950" : "bg-amber-300 text-slate-950"}`}>{status.google ? `Google Connected${status.googleLocation ? ` · ${status.googleLocation}` : ""}` : "Google Not Connected"}</span>
+        {status.google ? <span className="rounded-full bg-white/10 px-3 py-2 text-sm font-black text-white">Auto: 9:00 AM + 5:00 PM IST</span> : <a href="/api/google/auth" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">Connect Cafe Honeyman Google</a>}
+      </div>
+    </header>
+
+    <section className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-200">
+      <h2 className="text-lg font-black text-emerald-950">Automatic daily plan</h2>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="rounded-2xl bg-white p-4"><p className="font-black">9:00 AM</p><p className="mt-1 text-sm text-slate-600">Coffee, cafe food and fresh juice rotation.</p></div>
+        <div className="rounded-2xl bg-white p-4"><p className="font-black">5:00 PM</p><p className="mt-1 text-sm text-slate-600">Waffles, ice cream, pasta and shakes rotation.</p></div>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-emerald-900">Automatic posts do not need a manually pasted image URL. The fields below are only for extra manual campaigns.</p>
+    </section>
 
     <section className="grid gap-4 rounded-3xl bg-white p-6 shadow-sm md:grid-cols-2">
+      <div className="md:col-span-2"><h2 className="text-xl font-black">Manual / extra post</h2><p className="mt-1 text-sm text-slate-500">Use this only when you want an additional post outside the automatic 9 AM and 5 PM schedule.</p></div>
       <label className="font-bold">Campaign focus<select value={focus} onChange={(e) => chooseFocus(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-4">{Object.keys(focusCopy).map((f) => <option key={f}>{f}</option>)}</select></label>
       <label className="font-bold">Schedule date/time<input type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-4" /></label>
       <label className="md:col-span-2 font-bold">Google Business caption<textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={5} className="mt-2 w-full rounded-xl border p-4" /></label>
-      <label className="font-bold">Public image URL<input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://..." className="mt-2 h-12 w-full rounded-xl border px-4" /></label>
-      <label className="font-bold">CTA / website URL<input value={actionUrl} onChange={(e) => setActionUrl(e.target.value)} placeholder="https://..." className="mt-2 h-12 w-full rounded-xl border px-4" /></label>
-      <button disabled={loading || !status.google} onClick={schedule} className="h-12 rounded-xl bg-emerald-400 font-black text-slate-950 disabled:opacity-40">Schedule Google Post</button>
-      <button disabled={loading || !status.google} onClick={publishDueNow} className="h-12 rounded-xl bg-slate-950 font-black text-white disabled:opacity-40">Publish Due Now</button>
+      <label className="font-bold">Optional public image URL<input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Optional for manual posts" className="mt-2 h-12 w-full rounded-xl border px-4" /></label>
+      <label className="font-bold">Optional CTA / website URL<input value={actionUrl} onChange={(e) => setActionUrl(e.target.value)} placeholder="https://..." className="mt-2 h-12 w-full rounded-xl border px-4" /></label>
+      <button disabled={loading || !status.google} onClick={schedule} className="h-12 rounded-xl bg-emerald-400 font-black text-slate-950 disabled:opacity-40">Schedule Extra Google Post</button>
+      <button disabled={loading || !status.google} onClick={publishDueNow} className="h-12 rounded-xl bg-slate-950 font-black text-white disabled:opacity-40">Publish Due Manual Posts</button>
       {message ? <p className="md:col-span-2 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p> : null}
     </section>
 

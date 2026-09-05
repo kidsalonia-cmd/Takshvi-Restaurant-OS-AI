@@ -1,11 +1,10 @@
 export type QueuePost = {
   id: string;
-  business_slug: string;
+  business_name?: string;
   google_caption: string;
   instagram_caption?: string | null;
   image_url?: string | null;
   action_url?: string | null;
-  action_type?: string | null;
   publish_google: boolean;
   publish_instagram: boolean;
   scheduled_for: string;
@@ -107,7 +106,7 @@ export async function publishGooglePost(post: QueuePost) {
   if (post.image_url) payload.media = [{ mediaFormat: "PHOTO", sourceUrl: post.image_url }];
   if (post.action_url) {
     payload.callToAction = {
-      actionType: post.action_type || "LEARN_MORE",
+      actionType: "LEARN_MORE",
       url: post.action_url,
     };
   }
