@@ -12,6 +12,15 @@ export type QueuePost = {
   status: string;
 };
 
+type GoogleCredential = {
+  refresh_token?: string | null;
+  access_token?: string | null;
+  access_token_expires_at?: string | null;
+  account_id?: string | null;
+  location_id?: string | null;
+  location_title?: string | null;
+};
+
 function supabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -34,10 +43,25 @@ export function supabaseUrl(path: string) {
   return `${url}/rest/v1/${path}`;
 }
 
+export async function getSavedGoogleCredential(): Promise<GoogleCredential | null> {
+  try {
+    const response = await fetch(
+      supabaseUrl("cafe_google_credentials?id=eq.cafe-honeyman&select=refresh_token,access_token,access_token_expires_at,account_id,location_id,location_title&limit=1"),
+      { headers: supabaseHeaders(), cache: "no-store" },
+    );
+    if (!response.ok) return null;
+    const rows = await response.json() as GoogleCredential[];
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getGoogleAccessToken() {
-  const refreshToken = process.env.GOOGLE_BUSINESS_REFRESH_TOKEN;
+  const saved = await getSavedGoogleCredential();
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = saved?.refresh_token || process.env.GOOGLE_BUSINESS_REFRESH_TOKEN;
 
   if (refreshToken && clientId && clientSecret) {
     const body = new URLSearchParams({
@@ -59,14 +83,19 @@ export async function getGoogleAccessToken() {
     return data.access_token;
   }
 
+  if (saved?.access_token && saved.access_token_expires_at && new Date(saved.access_token_expires_at).getTime() > Date.now() + 60_000) {
+    return saved.access_token;
+  }
+
   const token = process.env.GOOGLE_BUSINESS_ACCESS_TOKEN;
   if (!token) throw new Error("Google Business credentials are not configured.");
   return token;
 }
 
 export async function publishGooglePost(post: QueuePost) {
-  const accountId = process.env.GOOGLE_BUSINESS_ACCOUNT_ID;
-  const locationId = process.env.GOOGLE_BUSINESS_LOCATION_ID;
+  const saved = await getSavedGoogleCredential();
+  const accountId = saved?.account_id || process.env.GOOGLE_BUSINESS_ACCOUNT_ID;
+  const locationId = saved?.location_id || process.env.GOOGLE_BUSINESS_LOCATION_ID;
   if (!accountId || !locationId) throw new Error("Google Business account/location IDs are missing.");
 
   const token = await getGoogleAccessToken();
