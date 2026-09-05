@@ -22,12 +22,19 @@ type GoogleCredential = {
 
 type GooglePostResult = {
   name?: string;
+  summary?: string;
+  state?: string;
   error?: {
     code?: number;
     message?: string;
     status?: string;
     details?: unknown;
   };
+};
+
+type GooglePostListResult = {
+  localPosts?: GooglePostResult[];
+  error?: { message?: string };
 };
 
 function supabaseConfig() {
@@ -121,7 +128,53 @@ async function createGooglePost(
     data = {};
   }
 
-  return { ok: response.ok && Boolean(data.name), data, raw };
+  return { ok: response.ok, data, raw };
+}
+
+function isRealGooglePostName(name?: string) {
+  return Boolean(name && name.startsWith("accounts/") && name.includes("/locations/") && name.includes("/localPosts/"));
+}
+
+async function wait(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function verifyGooglePost(
+  endpoint: string,
+  token: string,
+  summary: string,
+  candidateName?: string,
+): Promise<string | null> {
+  if (isRealGooglePostName(candidateName)) {
+    const verifyResponse = await fetch(`https://mybusiness.googleapis.com/v4/${candidateName}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (verifyResponse.ok) {
+      const post = await verifyResponse.json() as GooglePostResult;
+      if (post.state === "REJECTED") {
+        throw new Error(`Google created the post but marked it REJECTED: ${post.name || candidateName}`);
+      }
+      if (isRealGooglePostName(post.name)) return post.name!;
+    }
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await wait(1200);
+    const listResponse = await fetch(`${endpoint}?pageSize=20`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!listResponse.ok) continue;
+    const list = await listResponse.json() as GooglePostListResult;
+    const match = list.localPosts?.find((item) => item.summary?.trim() === summary.trim());
+    if (match?.state === "REJECTED") {
+      throw new Error(`Google created the post but marked it REJECTED: ${match.name || "unknown post"}`);
+    }
+    if (isRealGooglePostName(match?.name)) return match!.name!;
+  }
+
+  return null;
 }
 
 export async function publishGooglePost(post: QueuePost) {
@@ -170,11 +223,16 @@ export async function publishGooglePost(post: QueuePost) {
   const errors: string[] = [];
   for (const attempt of attempts) {
     const result = await createGooglePost(endpoint, token, attempt.payload);
-    if (result.ok && result.data.name) return result.data.name;
+    if (result.ok) {
+      const verifiedName = await verifyGooglePost(endpoint, token, post.google_caption, result.data.name);
+      if (verifiedName) return verifiedName;
+      errors.push(`${attempt.label}: Google returned HTTP success but the post could not be verified in the Local Posts API. Response: ${result.raw || "empty response"}`);
+      continue;
+    }
 
     const message = result.data.error?.message || result.raw || "Unknown Google Business error.";
     errors.push(`${attempt.label}: ${message}`);
   }
 
-  throw new Error(`Google Business post failed after fallback attempts. ${errors.join(" | ")}`);
+  throw new Error(`Google Business post was not verified as published. ${errors.join(" | ")}`);
 }
