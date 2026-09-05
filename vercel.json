@@ -1,8 +1,9 @@
 {
   "crons": [
-    {
-      "path": "/api/social/auto-post",
-      "schedule": "30 3,6,9,12,15 * * *"
-    }
+    { "path": "/api/social/auto-post?slot=9", "schedule": "30 3 * * *" },
+    { "path": "/api/social/auto-post?slot=12", "schedule": "30 6 * * *" },
+    { "path": "/api/social/auto-post?slot=15", "schedule": "30 9 * * *" },
+    { "path": "/api/social/auto-post?slot=18", "schedule": "30 12 * * *" },
+    { "path": "/api/social/auto-post?slot=21", "schedule": "30 15 * * *" }
   ]
 }
