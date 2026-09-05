@@ -32,25 +32,50 @@ export default function CafeSchedulerPage() {
   const [status, setStatus] = useState<Status>({});
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    void load();
-    void loadStatus();
+    void refreshAll();
     const params = new URLSearchParams(window.location.search);
     if (params.get("google") === "connected") setMessage(`Google Business connected: ${params.get("location") || "Cafe Honeyman"}.`);
     if (params.get("google") === "error") setMessage(params.get("message") || "Google connection failed.");
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshAll(false);
+    }, 10_000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refreshAll(false);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   async function load() {
-    const res = await fetch("/api/social/schedule", { cache: "no-store" });
+    const res = await fetch(`/api/social/schedule?t=${Date.now()}`, { cache: "no-store" });
     const data = await res.json();
     if (data.success) setPosts(data.posts || []);
   }
 
   async function loadStatus() {
-    const res = await fetch("/api/social/status", { cache: "no-store" });
+    const res = await fetch(`/api/social/status?t=${Date.now()}`, { cache: "no-store" });
     const data = await res.json();
     setStatus(data);
+  }
+
+  async function refreshAll(showSpinner = true) {
+    if (showSpinner) setRefreshing(true);
+    try {
+      await Promise.all([load(), loadStatus()]);
+      setLastUpdated(new Date());
+    } finally {
+      if (showSpinner) setRefreshing(false);
+    }
   }
 
   function chooseFocus(value: string) {
@@ -67,7 +92,7 @@ export default function CafeSchedulerPage() {
     const data = await res.json();
     setMessage(data.success ? "Google Business post scheduled." : data.message || "Unable to schedule post.");
     setLoading(false);
-    if (data.success) void load();
+    await refreshAll(false);
   }
 
   async function publishDueNow() {
@@ -75,29 +100,35 @@ export default function CafeSchedulerPage() {
     const res = await fetch("/api/social/process", { method: "POST" });
     const data = await res.json();
     setMessage(data.success ? `Processed ${data.processed || 0} due post(s).` : data.message || "Unable to publish due posts.");
-    setLoading(false); void load();
+    setLoading(false);
+    await refreshAll(false);
   }
 
   async function runLiveTest() {
     if (!window.confirm("Publish one live Cafe Honeyman test post to Google Business now?")) return;
-    setLoading(true); setMessage("Publishing live Google test...");
+    setLoading(true); setMessage("Publishing and verifying live Google test...");
     try {
       const hour = new Date().getHours();
       const slot = hour < 13 ? "morning" : "evening";
-      const res = await fetch(`/api/social/auto-post?slot=${slot}`, { method: "POST" });
+      const res = await fetch(`/api/social/auto-post?slot=${slot}&t=${Date.now()}`, { method: "POST", cache: "no-store" });
       const data = await res.json();
-      if (data.success) {
-        setMessage(`LIVE TEST SUCCESS: Google accepted the ${data.focus || slot} post. Google Post ID: ${data.googlePostId || "created"}`);
+      const realPostId = typeof data.googlePostId === "string" && data.googlePostId.includes("/localPosts/");
+
+      if (data.success && realPostId) {
+        setMessage(`LIVE TEST VERIFIED: Google post exists. ${data.googlePostId}`);
       } else if (data.skipped) {
         setMessage("This automatic slot was already created today. Check Posting Queue & History below.");
+      } else if (data.success) {
+        setMessage("LIVE TEST NOT VERIFIED: Google did not return a real localPosts resource ID. This is not counted as published.");
       } else {
-        setMessage(`LIVE TEST FAILED: ${data.message || "Google did not accept the post."}`);
+        setMessage(`LIVE TEST FAILED: ${data.message || "Google did not create a verifiable post."}`);
       }
     } catch (error) {
       setMessage(`LIVE TEST FAILED: ${error instanceof Error ? error.message : "Unable to reach the publishing API."}`);
     } finally {
       setLoading(false);
-      void load();
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      await refreshAll(false);
     }
   }
 
@@ -125,7 +156,7 @@ export default function CafeSchedulerPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-black text-amber-950">Live Google end-to-end test</h2>
-          <p className="mt-1 text-sm font-semibold text-amber-900">Creates one real Cafe Honeyman post with the automatic branded image and sends it to the connected Google Business Profile now.</p>
+          <p className="mt-1 text-sm font-semibold text-amber-900">Success is shown only after Google returns or confirms a real localPosts resource.</p>
         </div>
         <button disabled={loading || !status.google} onClick={runLiveTest} className="h-12 shrink-0 rounded-xl bg-amber-400 px-6 font-black text-slate-950 disabled:opacity-40">Run Live Google Test Now</button>
       </div>
@@ -143,6 +174,12 @@ export default function CafeSchedulerPage() {
       {message ? <p className="md:col-span-2 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p> : null}
     </section>
 
-    <section className="rounded-3xl bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Posting Queue & History</h2><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b text-left"><th className="p-3">Scheduled</th><th>Focus</th><th>Status</th><th>Google caption</th><th>Error</th></tr></thead><tbody>{posts.map((p) => <tr key={p.id} className="border-b"><td className="p-3 font-bold">{new Date(p.scheduled_for).toLocaleString("en-IN")}</td><td>{p.focus || "—"}</td><td className="font-black">{p.status}</td><td className="max-w-md py-3 pr-4">{p.google_caption}</td><td className="text-red-600">{p.last_error || ""}</td></tr>)}</tbody></table></div></section>
+    <section className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-xl font-black">Posting Queue & History</h2><p className="mt-1 text-xs font-semibold text-slate-500">Auto-refreshes every 10 seconds{lastUpdated ? ` · Last updated ${lastUpdated.toLocaleTimeString("en-IN")}` : ""}</p></div>
+        <button onClick={() => void refreshAll()} disabled={refreshing} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black disabled:opacity-50">{refreshing ? "Refreshing..." : "Refresh Now"}</button>
+      </div>
+      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b text-left"><th className="p-3">Scheduled</th><th>Focus</th><th>Status</th><th>Google caption</th><th>Error</th></tr></thead><tbody>{posts.length ? posts.map((p) => <tr key={p.id} className="border-b"><td className="p-3 font-bold">{new Date(p.scheduled_for).toLocaleString("en-IN")}</td><td>{p.focus || "—"}</td><td className="font-black">{p.status}</td><td className="max-w-md py-3 pr-4">{p.google_caption}</td><td className="text-red-600">{p.last_error || ""}</td></tr>) : <tr><td colSpan={5} className="p-6 text-center text-slate-500">No queue/history rows yet.</td></tr>}</tbody></table></div>
+    </section>
   </div></main>;
 }
