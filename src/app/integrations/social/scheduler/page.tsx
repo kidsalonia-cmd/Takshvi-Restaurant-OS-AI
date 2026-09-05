@@ -78,6 +78,29 @@ export default function CafeSchedulerPage() {
     setLoading(false); void load();
   }
 
+  async function runLiveTest() {
+    if (!window.confirm("Publish one live Cafe Honeyman test post to Google Business now?")) return;
+    setLoading(true); setMessage("Publishing live Google test...");
+    try {
+      const hour = new Date().getHours();
+      const slot = hour < 13 ? "morning" : "evening";
+      const res = await fetch(`/api/social/auto-post?slot=${slot}`, { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(`LIVE TEST SUCCESS: Google accepted the ${data.focus || slot} post. Google Post ID: ${data.googlePostId || "created"}`);
+      } else if (data.skipped) {
+        setMessage("This automatic slot was already created today. Check Posting Queue & History below.");
+      } else {
+        setMessage(`LIVE TEST FAILED: ${data.message || "Google did not accept the post."}`);
+      }
+    } catch (error) {
+      setMessage(`LIVE TEST FAILED: ${error instanceof Error ? error.message : "Unable to reach the publishing API."}`);
+    } finally {
+      setLoading(false);
+      void load();
+    }
+  }
+
   return <main className="min-h-screen bg-slate-100 p-5 text-slate-950 md:p-8"><div className="mx-auto max-w-6xl space-y-6">
     <header className="rounded-3xl bg-slate-950 p-7 text-white">
       <p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Cafe Honeyman</p>
@@ -96,6 +119,16 @@ export default function CafeSchedulerPage() {
         <div className="rounded-2xl bg-white p-4"><p className="font-black">5:00 PM</p><p className="mt-1 text-sm text-slate-600">Waffles, ice cream, pasta and shakes rotation.</p></div>
       </div>
       <p className="mt-3 text-sm font-semibold text-emerald-900">Automatic posts do not need a manually pasted image URL. The fields below are only for extra manual campaigns.</p>
+    </section>
+
+    <section className="rounded-3xl bg-amber-50 p-5 ring-1 ring-amber-200">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-black text-amber-950">Live Google end-to-end test</h2>
+          <p className="mt-1 text-sm font-semibold text-amber-900">Creates one real Cafe Honeyman post with the automatic branded image and sends it to the connected Google Business Profile now.</p>
+        </div>
+        <button disabled={loading || !status.google} onClick={runLiveTest} className="h-12 shrink-0 rounded-xl bg-amber-400 px-6 font-black text-slate-950 disabled:opacity-40">Run Live Google Test Now</button>
+      </div>
     </section>
 
     <section className="grid gap-4 rounded-3xl bg-white p-6 shadow-sm md:grid-cols-2">
