@@ -79,43 +79,74 @@ async function run(request: NextRequest) {
     const captionList = captions[focus];
     const caption = captionList[index % captionList.length];
     const uniqueTitle = `AUTO-${date}-${slot}`;
-
-    const existingResponse = await fetch(
-      supabaseUrl(`cafe_social_post_queue?title=eq.${encodeURIComponent(uniqueTitle)}&select=id,status&limit=1`),
-      { headers: supabaseHeaders(), cache: "no-store" },
-    );
-    if (!existingResponse.ok) throw new Error(await existingResponse.text());
-    const existing = await existingResponse.json() as Array<{ id: string; status: string }>;
-    if (existing.length) {
-      return NextResponse.json({ success: true, skipped: true, reason: "This slot was already created.", post: existing[0] });
-    }
-
     const imageUrl = `${request.nextUrl.origin}/api/social/cafe-image?focus=${encodeURIComponent(focus)}&slot=${slot}&date=${date}`;
     const actionUrl = process.env.CAFE_HONEYMAN_CTA_URL || "https://wa.me/919971008363";
     const now = new Date().toISOString();
-    const payload = {
-      business_name: "Cafe Honeyman",
-      title: uniqueTitle,
-      focus,
-      google_caption: caption,
-      instagram_caption: null,
-      image_url: imageUrl,
-      action_url: actionUrl,
-      publish_google: true,
-      publish_instagram: false,
-      scheduled_for: now,
-      status: "scheduled",
-    };
 
-    const insertResponse = await fetch(supabaseUrl("cafe_social_post_queue"), {
-      method: "POST",
-      headers: supabaseHeaders({ Prefer: "return=representation" }),
-      body: JSON.stringify(payload),
-    });
-    if (!insertResponse.ok) throw new Error(await insertResponse.text());
-    const rows = await insertResponse.json() as QueuePost[];
-    const post = rows[0];
-    if (!post?.id) throw new Error("Automatic post was not created.");
+    const existingResponse = await fetch(
+      supabaseUrl(`cafe_social_post_queue?title=eq.${encodeURIComponent(uniqueTitle)}&select=id,business_name,google_caption,instagram_caption,image_url,action_url,publish_google,publish_instagram,scheduled_for,status&limit=1`),
+      { headers: supabaseHeaders(), cache: "no-store" },
+    );
+    if (!existingResponse.ok) throw new Error(await existingResponse.text());
+    const existing = await existingResponse.json() as QueuePost[];
+
+    let post: QueuePost;
+    if (existing.length) {
+      const current = existing[0];
+      if (current.status === "published") {
+        return NextResponse.json({ success: true, skipped: true, reason: "This slot is already published.", post: current });
+      }
+
+      await patchPost(current.id, {
+        business_name: "Cafe Honeyman",
+        google_caption: caption,
+        image_url: imageUrl,
+        action_url: actionUrl,
+        publish_google: true,
+        publish_instagram: false,
+        scheduled_for: now,
+        status: "scheduled",
+        last_error: null,
+        google_post_id: null,
+        published_at: null,
+      });
+
+      post = {
+        ...current,
+        business_name: "Cafe Honeyman",
+        google_caption: caption,
+        image_url: imageUrl,
+        action_url: actionUrl,
+        publish_google: true,
+        publish_instagram: false,
+        scheduled_for: now,
+        status: "scheduled",
+      };
+    } else {
+      const payload = {
+        business_name: "Cafe Honeyman",
+        title: uniqueTitle,
+        focus,
+        google_caption: caption,
+        instagram_caption: null,
+        image_url: imageUrl,
+        action_url: actionUrl,
+        publish_google: true,
+        publish_instagram: false,
+        scheduled_for: now,
+        status: "scheduled",
+      };
+
+      const insertResponse = await fetch(supabaseUrl("cafe_social_post_queue"), {
+        method: "POST",
+        headers: supabaseHeaders({ Prefer: "return=representation" }),
+        body: JSON.stringify(payload),
+      });
+      if (!insertResponse.ok) throw new Error(await insertResponse.text());
+      const rows = await insertResponse.json() as QueuePost[];
+      post = rows[0];
+      if (!post?.id) throw new Error("Automatic post was not created.");
+    }
 
     try {
       const googlePostId = await publishGooglePost(post);
@@ -125,11 +156,11 @@ async function run(request: NextRequest) {
         published_at: new Date().toISOString(),
         last_error: null,
       });
-      return NextResponse.json({ success: true, slot, focus, googlePostId, imageUrl });
+      return NextResponse.json({ success: true, retried: existing.length > 0, slot, focus, googlePostId, imageUrl });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Google publishing failed.";
       await patchPost(post.id, { status: "failed", last_error: message });
-      return NextResponse.json({ success: false, slot, focus, message }, { status: 500 });
+      return NextResponse.json({ success: false, retried: existing.length > 0, slot, focus, message }, { status: 500 });
     }
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Automatic Cafe post failed." }, { status: 500 });
