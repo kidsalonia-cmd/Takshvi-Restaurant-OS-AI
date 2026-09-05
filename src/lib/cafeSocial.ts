@@ -20,6 +20,16 @@ type GoogleCredential = {
   location_title?: string | null;
 };
 
+type GooglePostResult = {
+  name?: string;
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+    details?: unknown;
+  };
+};
+
 function supabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -91,6 +101,29 @@ export async function getGoogleAccessToken() {
   return token;
 }
 
+async function createGooglePost(
+  endpoint: string,
+  token: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; data: GooglePostResult; raw: string }> {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  const raw = await response.text();
+  let data: GooglePostResult = {};
+  try {
+    data = raw ? JSON.parse(raw) as GooglePostResult : {};
+  } catch {
+    data = {};
+  }
+
+  return { ok: response.ok && Boolean(data.name), data, raw };
+}
+
 export async function publishGooglePost(post: QueuePost) {
   const saved = await getSavedGoogleCredential();
   const accountId = saved?.account_id || process.env.GOOGLE_BUSINESS_ACCOUNT_ID;
@@ -98,29 +131,50 @@ export async function publishGooglePost(post: QueuePost) {
   if (!accountId || !locationId) throw new Error("Google Business account/location IDs are missing.");
 
   const token = await getGoogleAccessToken();
-  const payload: Record<string, unknown> = {
+  const endpoint = `https://mybusiness.googleapis.com/v4/accounts/${encodeURIComponent(accountId)}/locations/${encodeURIComponent(locationId)}/localPosts`;
+
+  const basePayload: Record<string, unknown> = {
     languageCode: "en-US",
     summary: post.google_caption,
     topicType: "STANDARD",
   };
-  if (post.image_url) payload.media = [{ mediaFormat: "PHOTO", sourceUrl: post.image_url }];
+
+  const fullPayload: Record<string, unknown> = { ...basePayload };
+  if (post.image_url) fullPayload.media = [{ mediaFormat: "PHOTO", sourceUrl: post.image_url }];
   if (post.action_url) {
-    payload.callToAction = {
+    fullPayload.callToAction = {
       actionType: "LEARN_MORE",
       url: post.action_url,
     };
   }
 
-  const response = await fetch(
-    `https://mybusiness.googleapis.com/v4/accounts/${encodeURIComponent(accountId)}/locations/${encodeURIComponent(locationId)}/localPosts`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    },
-  );
-  const data = (await response.json()) as { name?: string; error?: { message?: string } };
-  if (!response.ok || !data.name) throw new Error(data.error?.message || "Google Business post failed.");
-  return data.name;
+  const attempts: Array<{ label: string; payload: Record<string, unknown> }> = [
+    { label: "full", payload: fullPayload },
+  ];
+
+  if (post.image_url) {
+    const withoutMedia: Record<string, unknown> = { ...basePayload };
+    if (post.action_url) {
+      withoutMedia.callToAction = {
+        actionType: "LEARN_MORE",
+        url: post.action_url,
+      };
+    }
+    attempts.push({ label: "without_media", payload: withoutMedia });
+  }
+
+  if (post.action_url) {
+    attempts.push({ label: "text_only", payload: { ...basePayload } });
+  }
+
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    const result = await createGooglePost(endpoint, token, attempt.payload);
+    if (result.ok && result.data.name) return result.data.name;
+
+    const message = result.data.error?.message || result.raw || "Unknown Google Business error.";
+    errors.push(`${attempt.label}: ${message}`);
+  }
+
+  throw new Error(`Google Business post failed after fallback attempts. ${errors.join(" | ")}`);
 }
