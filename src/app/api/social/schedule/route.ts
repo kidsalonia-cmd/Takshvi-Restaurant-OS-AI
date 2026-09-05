@@ -8,7 +8,6 @@ type ScheduleBody = {
   instagramCaption?: string;
   imageUrl?: string;
   actionUrl?: string;
-  actionType?: string;
   publishGoogle?: boolean;
   publishInstagram?: boolean;
   scheduledFor?: string;
@@ -17,7 +16,7 @@ type ScheduleBody = {
 export async function GET() {
   try {
     const response = await fetch(
-      supabaseUrl("cafe_social_post_queue?business_slug=eq.cafe-honeyman&select=*&order=scheduled_for.desc&limit=100"),
+      supabaseUrl("cafe_social_post_queue?business_name=eq.Cafe%20Honeyman&select=*&order=scheduled_for.desc&limit=100"),
       { headers: supabaseHeaders(), cache: "no-store" },
     );
     if (!response.ok) throw new Error(await response.text());
@@ -38,14 +37,13 @@ export async function POST(request: Request) {
     }
 
     const payload = {
-      business_slug: "cafe-honeyman",
+      business_name: "Cafe Honeyman",
       title: body.title || null,
       focus: body.focus || null,
       google_caption: body.googleCaption.trim(),
       instagram_caption: body.instagramCaption?.trim() || null,
       image_url: body.imageUrl?.trim() || null,
       action_url: body.actionUrl?.trim() || null,
-      action_type: body.actionType || "LEARN_MORE",
       publish_google: body.publishGoogle !== false,
       publish_instagram: Boolean(body.publishInstagram),
       scheduled_for: new Date(body.scheduledFor).toISOString(),
