@@ -10,7 +10,7 @@ async function patchPost(id: string, payload: Record<string, unknown>) {
   if (!response.ok) throw new Error(await response.text());
 }
 
-export async function POST(request: Request) {
+async function processDue(request: Request) {
   try {
     const auth = request.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
@@ -31,7 +31,6 @@ export async function POST(request: Request) {
       try {
         let googlePostId: string | undefined;
         if (post.publish_google) googlePostId = await publishGooglePost(post);
-
         const waitingForInstagram = post.publish_instagram && !process.env.META_ACCESS_TOKEN;
         await patchPost(post.id, {
           status: waitingForInstagram ? "google_published_instagram_waiting" : "published",
@@ -52,3 +51,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to process scheduled posts." }, { status: 500 });
   }
 }
+
+export async function POST(request: Request) { return processDue(request); }
+export async function GET(request: Request) { return processDue(request); }
