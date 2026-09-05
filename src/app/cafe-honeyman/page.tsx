@@ -1,22 +1,11 @@
 import type { Metadata } from "next";
-import { supabaseHeaders, supabaseUrl } from "@/lib/cafeSocial";
 
-export const revalidate = 900;
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Cafe Honeyman Sector 49 Gurugram | Coffee, Pasta, Waffles & Fresh Juice",
   description: "Visit Cafe Honeyman at Sapphire Mall, Sector 49, Gurugram near Uppal Southend for coffee, cafe food, pasta, waffles, fresh juice, shakes and ice cream.",
-  alternates: { canonical: "/cafe-honeyman" },
-  keywords: [
-    "Cafe Honeyman",
-    "cafe in Sector 49 Gurugram",
-    "coffee near Sapphire Mall",
-    "cafe near Uppal Southend",
-    "pasta Sector 49 Gurugram",
-    "waffles Sector 49 Gurugram",
-    "fresh juice Sector 49",
-    "ice cream Sapphire Mall",
-  ],
+  keywords: ["Cafe Honeyman", "cafe in Sector 49 Gurugram", "coffee near Sapphire Mall", "cafe near Uppal Southend", "pasta Sector 49 Gurugram", "waffles Sector 49 Gurugram", "fresh juice Sector 49", "ice cream Sapphire Mall"],
   openGraph: {
     title: "Cafe Honeyman | Sapphire Mall, Sector 49 Gurugram",
     description: "Coffee, cafe food, pasta, waffles, fresh juice, shakes and ice cream near Uppal Southend.",
@@ -24,20 +13,18 @@ export const metadata: Metadata = {
   },
 };
 
-type SeoPost = {
-  id: string;
-  focus?: string | null;
-  google_caption: string;
-  image_url?: string | null;
-  published_at?: string | null;
-};
+type SeoPost = { id: string; focus?: string | null; google_caption: string; image_url?: string | null };
 
 async function getRecentPosts(): Promise<SeoPost[]> {
   try {
-    const res = await fetch(
-      supabaseUrl("cafe_social_post_queue?business_name=eq.Cafe%20Honeyman&status=eq.published&select=id,focus,google_caption,image_url,published_at&order=published_at.desc&limit=12"),
-      { headers: supabaseHeaders(), next: { revalidate: 900 } },
-    );
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!base || !key) return [];
+    const path = "cafe_social_post_queue?business_name=eq.Cafe%20Honeyman&status=eq.published&select=id,focus,google_caption,image_url,published_at&order=published_at.desc&limit=12";
+    const res = await fetch(`${base}/rest/v1/${path}`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      cache: "no-store",
+    });
     if (!res.ok) return [];
     return (await res.json()) as SeoPost[];
   } catch {
@@ -93,34 +80,15 @@ export default async function CafeHoneymanPage() {
         <h2 className="text-3xl font-black">What to enjoy at Cafe Honeyman</h2>
         <p className="mt-3 max-w-3xl text-slate-600">Local cafe favourites for guests around Sector 49, Uppal Southend, Orchid Petals and Sapphire Mall.</p>
         <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {categories.map(([title, text]) => (
-            <article key={title} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-100">
-              <h3 className="text-xl font-black">{title}</h3>
-              <p className="mt-2 leading-7 text-slate-600">{text}</p>
-            </article>
-          ))}
+          {categories.map(([title, text]) => <article key={title} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-100"><h3 className="text-xl font-black">{title}</h3><p className="mt-2 leading-7 text-slate-600">{text}</p></article>)}
         </div>
       </section>
 
       <section id="latest" className="bg-white px-5 py-12 md:px-10">
         <div className="mx-auto max-w-6xl">
           <h2 className="text-3xl font-black">Latest Cafe Honeyman updates</h2>
-          <p className="mt-3 max-w-3xl text-slate-600">The same current offers and food highlights published to Google Business are also surfaced here for customers and search engines.</p>
-          {posts.length ? (
-            <div className="mt-7 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {posts.map((post) => (
-                <article key={post.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
-                  {post.image_url ? <img src={post.image_url} alt={`${post.focus || "Cafe Honeyman"} at Cafe Honeyman Sector 49 Gurugram`} className="aspect-[4/3] w-full object-cover" /> : null}
-                  <div className="p-5">
-                    <p className="text-xs font-black uppercase tracking-[.14em] text-emerald-700">{post.focus || "Cafe Honeyman"}</p>
-                    <p className="mt-3 leading-7 text-slate-700">{post.google_caption}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-6 rounded-2xl bg-amber-50 p-5 font-semibold text-amber-900">Fresh Cafe Honeyman updates will appear here automatically as campaigns publish.</p>
-          )}
+          <p className="mt-3 max-w-3xl text-slate-600">The latest successfully published Google Business campaigns are also displayed here, keeping the website current with the same food and drink highlights.</p>
+          {posts.length ? <div className="mt-7 grid gap-5 md:grid-cols-2 lg:grid-cols-3">{posts.map((post) => <article key={post.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5"><p className="text-xs font-black uppercase tracking-[.14em] text-emerald-700">{post.focus || "Cafe Honeyman"}</p><p className="mt-3 leading-7 text-slate-700">{post.google_caption}</p></article>)}</div> : <p className="mt-6 rounded-2xl bg-amber-50 p-5 font-semibold text-amber-900">Fresh Cafe Honeyman updates will appear here automatically as campaigns publish.</p>}
         </div>
       </section>
 
