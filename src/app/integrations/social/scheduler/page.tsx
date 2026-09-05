@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 type Post = { id: string; title?: string; focus?: string; scheduled_for: string; status: string; google_caption: string; last_error?: string };
+type Status = { google?: boolean; googleLocation?: string | null };
 
 const focusCopy: Record<string, string> = {
   Coffee: "Fresh coffee, relaxed cafe vibes and a perfect break in Sector 49, Gurugram. Visit Cafe Honeyman at Sapphire Mall today.",
@@ -28,15 +29,28 @@ export default function CafeSchedulerPage() {
   const [actionUrl, setActionUrl] = useState("");
   const [scheduledFor, setScheduledFor] = useState(localInputTomorrowNine());
   const [posts, setPosts] = useState<Post[]>([]);
+  const [status, setStatus] = useState<Status>({});
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    void loadStatus();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google") === "connected") setMessage(`Google Business connected: ${params.get("location") || "Cafe Honeyman"}.`);
+    if (params.get("google") === "error") setMessage(params.get("message") || "Google connection failed.");
+  }, []);
 
   async function load() {
     const res = await fetch("/api/social/schedule", { cache: "no-store" });
     const data = await res.json();
     if (data.success) setPosts(data.posts || []);
+  }
+
+  async function loadStatus() {
+    const res = await fetch("/api/social/status", { cache: "no-store" });
+    const data = await res.json();
+    setStatus(data);
   }
 
   function chooseFocus(value: string) {
@@ -65,7 +79,7 @@ export default function CafeSchedulerPage() {
   }
 
   return <main className="min-h-screen bg-slate-100 p-5 text-slate-950 md:p-8"><div className="mx-auto max-w-6xl space-y-6">
-    <header className="rounded-3xl bg-slate-950 p-7 text-white"><p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Cafe Honeyman</p><h1 className="mt-2 text-3xl font-black">Google Business Auto Posting & Scheduler</h1><p className="mt-3 text-sm text-slate-300">Google-first automation while Meta API approval is pending. Daily queue runs at 9:00 AM IST.</p></header>
+    <header className="rounded-3xl bg-slate-950 p-7 text-white"><p className="text-sm font-black uppercase tracking-[.18em] text-emerald-400">Cafe Honeyman</p><h1 className="mt-2 text-3xl font-black">Google Business Auto Posting & Scheduler</h1><p className="mt-3 text-sm text-slate-300">Google-first automation while Meta API approval is pending. Daily queue runs at 9:00 AM IST.</p><div className="mt-5 flex flex-wrap items-center gap-3"><span className={`rounded-full px-3 py-2 text-sm font-black ${status.google ? "bg-emerald-400 text-slate-950" : "bg-amber-300 text-slate-950"}`}>{status.google ? `Google Connected${status.googleLocation ? ` · ${status.googleLocation}` : ""}` : "Google Not Connected"}</span>{!status.google ? <a href="/api/google/auth" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-slate-950">Connect Cafe Honeyman Google</a> : null}</div></header>
 
     <section className="grid gap-4 rounded-3xl bg-white p-6 shadow-sm md:grid-cols-2">
       <label className="font-bold">Campaign focus<select value={focus} onChange={(e) => chooseFocus(e.target.value)} className="mt-2 h-12 w-full rounded-xl border px-4">{Object.keys(focusCopy).map((f) => <option key={f}>{f}</option>)}</select></label>
@@ -73,8 +87,8 @@ export default function CafeSchedulerPage() {
       <label className="md:col-span-2 font-bold">Google Business caption<textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={5} className="mt-2 w-full rounded-xl border p-4" /></label>
       <label className="font-bold">Public image URL<input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://..." className="mt-2 h-12 w-full rounded-xl border px-4" /></label>
       <label className="font-bold">CTA / website URL<input value={actionUrl} onChange={(e) => setActionUrl(e.target.value)} placeholder="https://..." className="mt-2 h-12 w-full rounded-xl border px-4" /></label>
-      <button disabled={loading} onClick={schedule} className="h-12 rounded-xl bg-emerald-400 font-black text-slate-950">Schedule Google Post</button>
-      <button disabled={loading} onClick={publishDueNow} className="h-12 rounded-xl bg-slate-950 font-black text-white">Publish Due Now</button>
+      <button disabled={loading || !status.google} onClick={schedule} className="h-12 rounded-xl bg-emerald-400 font-black text-slate-950 disabled:opacity-40">Schedule Google Post</button>
+      <button disabled={loading || !status.google} onClick={publishDueNow} className="h-12 rounded-xl bg-slate-950 font-black text-white disabled:opacity-40">Publish Due Now</button>
       {message ? <p className="md:col-span-2 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p> : null}
     </section>
 
