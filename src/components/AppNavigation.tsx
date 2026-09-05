@@ -11,7 +11,7 @@ const navigation = [
   ["CRM", "/crm", "◎"], ["Finance", "/reports/daily", "₹"], ["Customer Report", "/reports/customers", "👤"], ["Marketplace", "/marketplace", "◉"],
   ["Source Files", "/marketplace/files", "⇩"], ["Outlet Analysis", "/marketplace/outlets", "◌"],
   ["Item Suggestions", "/marketplace/outlets/suggestions", "✦"], ["Marketplace Integrations", "/integrations/marketplaces", "↔"],
-  ["Platform Logins", "/integrations/platform-logins", "⇥"], ["Instagram & GMB", "/integrations/social", "◎"], ["Cafe Auto Posting", "/integrations/social/autopost", "✦"], ["Settings", "/settings", "⚙"],
+  ["Platform Logins", "/integrations/platform-logins", "⇥"], ["Instagram & GMB", "/integrations/social", "◎"], ["Cafe Auto Posting", "/integrations/social/autopost", "✦"], ["Cafe Google Scheduler", "/integrations/social/scheduler", "◷"], ["Settings", "/settings", "⚙"],
 ] as const;
 
 const mobilePrimary = [
