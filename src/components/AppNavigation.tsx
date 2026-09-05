@@ -28,6 +28,8 @@ export default function AppNavigation() {
     return term ? navigation.filter(([label]) => label.toLowerCase().includes(term)) : navigation;
   }, [query]);
 
+  if (pathname.startsWith("/cafe-honeyman")) return null;
+
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="fixed right-4 top-4 z-[70] grid h-11 w-11 place-items-center rounded-xl bg-slate-950 text-white shadow-xl lg:hidden" aria-label="Open navigation">☰</button>
