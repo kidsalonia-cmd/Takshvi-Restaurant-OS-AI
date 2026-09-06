@@ -1,0 +1,64 @@
+name: Cafe Honeyman Google Auto Post
+
+on:
+  schedule:
+    - cron: '30 3,6,9,12,15 * * *'
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: 'IST slot to run: 9,12,15,18,21'
+        required: false
+        default: ''
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve Cafe posting slot
+        id: slot
+        shell: bash
+        run: |
+          SLOT='${{ github.event.inputs.slot }}'
+          if [ -z "$SLOT" ]; then
+            HOUR=$(date -u +%H)
+            case "$HOUR" in
+              03) SLOT=9 ;;
+              06) SLOT=12 ;;
+              09) SLOT=15 ;;
+              12) SLOT=18 ;;
+              15) SLOT=21 ;;
+              *)
+                echo "Unexpected UTC hour: $HOUR"
+                exit 1
+                ;;
+            esac
+          fi
+          case "$SLOT" in
+            9|12|15|18|21) ;;
+            *) echo "Invalid slot: $SLOT"; exit 1 ;;
+          esac
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "Running Cafe Honeyman slot $SLOT IST"
+
+      - name: Trigger Cafe Honeyman Google auto-post
+        env:
+          SLOT: ${{ steps.slot.outputs.slot }}
+        shell: bash
+        run: |
+          URL="https://takshvi-restaurant-os-ai.vercel.app/api/social/auto-post?slot=${SLOT}"
+          echo "Calling $URL"
+          RESPONSE_FILE=$(mktemp)
+          HTTP_CODE=$(curl --silent --show-error --location \
+            --output "$RESPONSE_FILE" \
+            --write-out '%{http_code}' \
+            --header 'x-vercel-cron: 1' \
+            "$URL")
+          cat "$RESPONSE_FILE"
+          echo
+          echo "HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi
+
+      - name: Confirm scheduler run
+        run: echo "Cafe Honeyman scheduled post trigger completed for ${{ steps.slot.outputs.slot }} IST"
